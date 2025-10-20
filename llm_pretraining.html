@@ -1,0 +1,513 @@
+<style>
+  body { 
+    font-family: system-ui, -apple-system, sans-serif; 
+    margin: 0; 
+    padding: 20px; 
+    background: #fafafa;
+  }
+  #viz { 
+    background: white; 
+    border-radius: 8px; 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 10px;
+  }
+  .step-annotation {
+    font-weight: 600;
+    fill: #2c5282;
+  }
+  .pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+</style>
+<div id="viz"></div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+const W = 900, H = 580, margin = {top: 20, right: 20, bottom: 20, left: 20};
+const svg = d3.select("#viz").append("svg")
+  .attr("viewBox", `0 0 ${W} ${H}`);
+
+const layout = {
+  title: {x: 30, y: 20},
+  sentence: {x: 30, y: 80},
+  model: {x: 30, y: 140, w: 420, h: 220},
+  pred: {x: 480, y: 140, w: 380, h: 220},
+  loss: {x: 30, y: 380, w: 300, h: 140},
+  weights: {x: 360, y: 380, w: 500, h: 140}
+};
+
+// Example sentence + ground-truth for masked positions
+const tokens = ["The","quick","brown","fox","jumps","over","the","lazy","dog"];
+let maskIndex = 3; // start with "fox"
+let step = 0;
+let lossHistory = [];
+let trainingRound = 0; // Track how many times we've trained on current token
+const roundsPerToken = 4; // Train each token 4 times before moving to next
+
+// Fake model state (toy weights matrix 8x8)
+const M = 8, N = 8;
+let weights = d3.range(M*N).map(() => d3.randomNormal(0, 0.6)());
+
+// Color scale for weights
+const wColor = d3.scaleSequential(d3.interpolateRdBu).domain([1.2, -1.2]); // inverted for red=positive, blue=negative
+
+// Panels
+const sentenceG = svg.append("g").attr("transform", `translate(${layout.sentence.x},${layout.sentence.y})`);
+const modelG = svg.append("g").attr("transform", `translate(${layout.model.x},${layout.model.y})`);
+const predG = svg.append("g").attr("transform", `translate(${layout.pred.x},${layout.pred.y})`);
+const lossG = svg.append("g").attr("transform", `translate(${layout.loss.x},${layout.loss.y})`);
+const weightsG = svg.append("g").attr("transform", `translate(${layout.weights.x},${layout.weights.y})`);
+
+// Title
+svg.append("text")
+  .attr("x", layout.title.x)
+  .attr("y", layout.title.y)
+  .style("font", "bold 20px system-ui")
+  .style("fill", "#1a202c")
+  .text("Masked Language Model Pre-Training (BERT-style)");
+
+svg.append("text")
+  .attr("x", layout.title.x)
+  .attr("y", layout.title.y + 22)
+  .style("font", "13px system-ui")
+  .style("fill", "#718096")
+  .text("Self-supervised learning: predict masked tokens using context");
+
+// Add arrow marker once at the top level
+const defs = svg.selectAll("defs").data([1]).join("defs");
+defs.selectAll("marker#arrowMarker").data([1]).join("marker")
+  .attr("id", "arrowMarker")
+  .attr("markerWidth", 10).attr("markerHeight", 10)
+  .attr("refX", 8).attr("refY", 3)
+  .attr("orient", "auto")
+  .selectAll("polygon").data([1]).join("polygon")
+  .attr("points", "0 0, 10 3, 0 6")
+  .attr("fill", "#4299e1");
+
+// Larger arrow for main flow
+defs.selectAll("marker#arrowMarkerBig").data([1]).join("marker")
+  .attr("id", "arrowMarkerBig")
+  .attr("markerWidth", 12).attr("markerHeight", 12)
+  .attr("refX", 9).attr("refY", 4)
+  .attr("orient", "auto")
+  .selectAll("polygon").data([1]).join("polygon")
+  .attr("points", "0 0, 12 4, 0 8")
+  .attr("fill", "#2b6cb0");
+
+// Add flow arrows showing data flow through the system
+const flowG = svg.append("g").attr("class", "flows");
+
+// Main data flow arrows
+flowG.selectAll("path.flow-arrow").data([
+  {x1: 30+400, y1: 100, x2: 480, y2: 160, label: "③ Output", color: "#4299e1"},
+  {x1: 650, y1: 360, x2: 200, y2: 380, label: "④ Compare", color: "#ed8936"},
+  {x1: 250, y1: 520, x2: 360, y2: 480, label: "⑤ Update", color: "#48bb78"}
+]).join("path")
+  .attr("class", "flow-arrow")
+  .attr("d", d => `M ${d.x1} ${d.y1} L ${d.x2} ${d.y2}`)
+  .attr("stroke", d => d.color)
+  .attr("stroke-width", 2.5)
+  .attr("fill", "none")
+  .attr("marker-end", "url(#arrowMarkerBig)");
+
+// Step labels with backgrounds
+const stepLabels = flowG.selectAll("g.flow-label").data([
+  {x: 460, y: 120, text: "③ Predict masked token", color: "#4299e1"},
+  {x: 420, y: 372, text: "④ Calculate loss", color: "#ed8936"},
+  {x: 300, y: 492, text: "⑤ Backprop & update", color: "#48bb78"}
+]);
+const stepEnter = stepLabels.enter().append("g").attr("class", "flow-label");
+stepEnter.append("rect")
+  .attr("x", d => d.x - 70)
+  .attr("y", d => d.y - 12)
+  .attr("width", 140)
+  .attr("height", 20)
+  .attr("rx", 4)
+  .attr("fill", "white")
+  .attr("stroke", d => d.color)
+  .attr("stroke-width", 2);
+stepEnter.append("text")
+  .attr("x", d => d.x)
+  .attr("y", d => d.y)
+  .attr("class", "step-annotation")
+  .style("font", "bold 11px system-ui")
+  .style("fill", d => d.color)
+  .style("text-anchor", "middle")
+  .attr("dy", "0.35em")
+  .text(d => d.text);
+// Sentence
+function renderSentence() {
+  const tSel = sentenceG.selectAll("g.token").data(tokens, d => d + Math.random()); // keep simple for demo
+  const tEnter = tSel.enter().append("g").attr("class", "token");
+  tEnter.append("rect").attr("rx", 4).attr("ry", 4);
+  tEnter.append("text").attr("dy", "0.9em");
+
+  const all = tEnter.merge(tSel);
+  all.attr("transform", (d,i) => `translate(${i*90},0)`);
+  all.select("rect")
+    .attr("width", 80).attr("height", 28)
+    .attr("fill", (d,i) => i===maskIndex ? "#FFE08A" : "#eee")
+    .attr("stroke", (d,i) => i===maskIndex ? "#CC9A00" : "#ccc");
+  all.select("text")
+    .attr("x", 8).attr("y", 4)
+    .style("font", "14px/1.2 system-ui")
+    .text((d,i) => i===maskIndex ? "[MASK]" : d);
+
+  tSel.exit().remove();
+  
+  // Add step label
+  const stepBox = sentenceG.selectAll("g.step-label").data([1]);
+  const stepEnter = stepBox.enter().append("g").attr("class", "step-label");
+  stepEnter.append("rect")
+    .attr("x", -5).attr("y", -28)
+    .attr("width", 180).attr("height", 22)
+    .attr("rx", 4)
+    .attr("fill", "white")
+    .attr("stroke", "#805ad5")
+    .attr("stroke-width", 2);
+  stepEnter.append("text")
+    .attr("x", 5).attr("y", -17)
+    .attr("dy", "0.35em")
+    .attr("class", "step-annotation")
+    .style("font", "bold 12px system-ui")
+    .style("fill", "#805ad5")
+    .text("① Input: Mask random token");
+  
+  stepEnter.merge(stepBox);
+}
+
+// Model box
+function renderModel(attentionWeights=[]) {
+  const {w,h} = layout.model;
+  // outer box
+  modelG.selectAll("rect.frame").data([1]).join("rect")
+    .attr("class","frame").attr("width", w).attr("height", h)
+    .attr("rx", 10).attr("fill", "#fafafa").attr("stroke", "#ddd");
+  // Title with step annotation
+  const titleG = modelG.selectAll("g.title-group").data([1]);
+  const titleEnter = titleG.enter().append("g").attr("class", "title-group");
+  titleEnter.append("rect")
+    .attr("x", 8).attr("y", 4)
+    .attr("width", 210).attr("height", 22)
+    .attr("rx", 4)
+    .attr("fill", "white")
+    .attr("stroke", "#3182ce")
+    .attr("stroke-width", 2);
+  titleEnter.append("text")
+    .attr("class","title").attr("x", 18).attr("y", 15)
+    .attr("dy", "0.35em")
+    .attr("class", "step-annotation")
+    .style("font","bold 12px system-ui")
+    .style("fill", "#3182ce")
+    .text("② Transformer: Process context");
+  titleEnter.merge(titleG);
+
+  // Input embeddings (token positions)
+  const tokenCount = tokens.length;
+  const tokenSpacing = (w - 40) / (tokenCount - 1);
+  const embedY = 50;
+  
+  // Add "Input Embeddings" label
+  modelG.selectAll("text.embed-label").data([1]).join("text")
+    .attr("class", "embed-label")
+    .attr("x", 10).attr("y", embedY - 8)
+    .style("font", "10px system-ui").style("fill", "#718096")
+    .text("Token embeddings");
+  
+  const embeds = modelG.selectAll("circle.embed").data(d3.range(tokenCount), d => d);
+  embeds.enter().append("circle").attr("class", "embed")
+    .attr("r", 4)
+    .attr("fill", (d, i) => i === maskIndex ? "#FFE08A" : "#b8d4e3")
+    .attr("stroke", "#999")
+    .attr("stroke-width", 1)
+    .merge(embeds)
+    .transition().duration(600)
+    .attr("cx", (d, i) => 20 + i * tokenSpacing)
+    .attr("cy", embedY)
+    .attr("fill", (d, i) => i === maskIndex ? "#FFE08A" : "#b8d4e3");
+  embeds.exit().remove();
+
+  // Attention label
+  modelG.selectAll("text.attn-label").data([1]).join("text")
+    .attr("class", "attn-label")
+    .attr("x", 10).attr("y", embedY + 35)
+    .style("font", "10px system-ui").style("fill", "#718096")
+    .text("Self-attention: context aggregation");
+
+  // Attention connections (highlight mask attending to all tokens)
+  const attnLines = modelG.selectAll("line.attention").data(
+    d3.range(tokenCount).map(i => ({ from: i, to: maskIndex }))
+  );
+  attnLines.enter().append("line").attr("class", "attention pulse")
+    .attr("x1", (d, i) => 20 + d.from * tokenSpacing)
+    .attr("y1", embedY)
+    .attr("x2", (d, i) => 20 + d.to * tokenSpacing)
+    .attr("y2", embedY + 65)
+    .attr("stroke", (d, i) => d.from === maskIndex ? "#e53e3e" : (d.to === maskIndex ? "#fc8181" : "#e2e8f0"))
+    .attr("stroke-width", (d, i) => d.from === maskIndex ? 3 : 1)
+    .attr("opacity", (d, i) => d.from === maskIndex ? 0.8 : 0.3)
+    .merge(attnLines)
+    .transition().duration(600)
+    .attr("x1", (d) => 20 + d.from * tokenSpacing)
+    .attr("x2", (d) => 20 + d.to * tokenSpacing)
+    .attr("stroke", (d, i) => d.from === maskIndex ? "#e53e3e" : (d.to === maskIndex ? "#fc8181" : "#e2e8f0"))
+    .attr("stroke-width", (d, i) => d.from === maskIndex ? 3 : 1);
+  attnLines.exit().remove();
+
+  // Processing layers
+  const layers = d3.range(3);
+  const layerSel = modelG.selectAll("rect.layer").data(layers);
+  layerSel.enter().append("rect").attr("class","layer")
+    .attr("x", 20).attr("width", w-40)
+    .attr("rx", 4).attr("fill","#e8f4f8").attr("stroke","#6ab0d4").attr("stroke-width", 2)
+    .merge(layerSel)
+    .attr("y",(d)=>120 + d*35).attr("height", 28);
+  layerSel.exit().remove();
+
+  // Layer labels with descriptions
+  const layerLabels = modelG.selectAll("text.layer-label").data(layers);
+  layerLabels.enter().append("text").attr("class", "layer-label")
+    .attr("x", 25).attr("font-size", "11px").attr("fill", "#2c5282")
+    .style("font", "600 11px system-ui")
+    .merge(layerLabels)
+    .attr("y", (d) => 120 + d*35 + 18)
+    .text((d) => `Layer ${d+1}: Attention + FFN`);
+  layerLabels.exit().remove();
+
+  // Output representation (after processing)
+  modelG.selectAll("text.output-label").data([1]).join("text")
+    .attr("class", "output-label")
+    .attr("x", 10).attr("y", embedY + 230)
+    .style("font", "10px system-ui").style("fill", "#718096")
+    .text("Contextual representations");
+    
+  const outputCircles = modelG.selectAll("circle.output").data(d3.range(tokenCount), d => d);
+  outputCircles.enter().append("circle").attr("class", "output")
+    .attr("r", 6)
+    .attr("fill", (d, i) => i === maskIndex ? "#ffd700" : "#48bb78")
+    .attr("stroke", (d, i) => i === maskIndex ? "#d69e00" : "#2f855a")
+    .attr("stroke-width", 2)
+    .merge(outputCircles)
+    .transition().duration(600)
+    .attr("cx", (d, i) => 20 + i * tokenSpacing)
+    .attr("cy", embedY + 240)
+    .attr("fill", (d, i) => i === maskIndex ? "#ffd700" : "#48bb78");
+  outputCircles.exit().remove();
+
+  // Arrow indicating forward pass
+  modelG.selectAll("path.forward").data([1]).join("path")
+    .attr("class", "forward")
+    .attr("d", `M ${w-15} 120 L ${w-15} 225`)
+    .attr("stroke", "#4299e1")
+    .attr("stroke-width", 3)
+    .attr("fill", "none")
+    .attr("marker-end", "url(#arrowMarkerBig)");
+
+  // Arrow marker definition
+  svg.selectAll("defs").data([1]).join("defs")
+    .selectAll("marker#arrowhead").data([1]).join("marker")
+    .attr("id", "arrowhead")
+    .attr("markerWidth", 10).attr("markerHeight", 10)
+    .attr("refX", 5).attr("refY", 5)
+    .attr("orient", "auto")
+    .selectAll("polygon").data([1]).join("polygon")
+    .attr("points", "0 0, 10 5, 0 10")
+    .attr("fill", "#666");
+}
+
+// Predictions chart (top-5)
+function renderPred(top5=[]) {
+  const {w,h} = layout.pred;
+  predG.selectAll("rect.frame").data([1]).join("rect")
+    .attr("class","frame").attr("width", w).attr("height", h)
+    .attr("rx", 10).attr("fill", "#fafafa").attr("stroke", "#ddd");
+  predG.selectAll("text.title").data([1]).join("text")
+    .attr("x", 12).attr("y", 20).style("font","bold 14px system-ui")
+    .style("fill", "#1a202c")
+    .text("Top Predictions for [MASK]");
+  
+  predG.selectAll("text.subtitle").data([1]).join("text")
+    .attr("x", 12).attr("y", 38).style("font","11px system-ui")
+    .style("fill", "#718096")
+    .text("Model's probability distribution over vocabulary");
+
+  const x = d3.scaleLinear().domain([0, d3.max(top5, d=>d.p)||1]).range([0, w-140]);
+  const y = d3.scaleBand().domain(top5.map(d=>d.token)).range([50, h-12]).padding(0.2);
+
+  const row = predG.selectAll("g.row").data(top5, d=>d.token);
+  const rowEnter = row.enter().append("g").attr("class","row")
+    .attr("transform", d=>`translate(20,${y(d.token)||0})`);
+  rowEnter.append("text").attr("class","label")
+    .attr("x", 0).attr("y", y.bandwidth()/2).attr("dy","0.35em")
+    .style("font","12px system-ui").text(d=>d.token);
+  rowEnter.append("rect").attr("class","bar")
+    .attr("x", 80).attr("height", y.bandwidth()).attr("width", 0).attr("fill", "#4e79a7");
+  rowEnter.append("text").attr("class","val")
+    .attr("x", 80).attr("y", y.bandwidth()/2).attr("dy","0.35em")
+    .style("font","12px system-ui").text("");
+
+  const merged = rowEnter.merge(row);
+  merged.transition().duration(700)
+    .attr("transform", d=>`translate(20,${y(d.token)})`);
+  merged.select("rect.bar").transition().duration(700)
+    .attr("width", d=>x(d.p));
+  merged.select("text.val").transition().duration(700)
+    .attr("x", d=>80 + x(d.p) + 6)
+    .text(d=> (d.p*100).toFixed(1) + "%");
+
+  row.exit().transition().duration(400).style("opacity", 0).remove();
+}
+
+// Loss panel
+function renderLoss(loss=NaN) {
+  const {w,h} = layout.loss;
+  lossG.selectAll("rect.frame").data([1]).join("rect")
+    .attr("class","frame").attr("width", w).attr("height", h)
+    .attr("rx", 10).attr("fill","#fafafa").attr("stroke","#ddd");
+  lossG.selectAll("text.title").data([1]).join("text")
+    .attr("x", 12).attr("y", 20).style("font","bold 14px system-ui")
+    .style("fill", "#1a202c")
+    .text("Loss (Cross-Entropy)");
+    
+  lossG.selectAll("text.subtitle").data([1]).join("text")
+    .attr("x", 12).attr("y", 38).style("font","11px system-ui")
+    .style("fill", "#718096")
+    .text("Measures prediction error");
+
+  lossG.selectAll("text.value").data([loss]).join("text")
+    .attr("class","value").attr("x", 20).attr("y", 70)
+    .style("font","600 26px system-ui")
+    .style("fill", isNaN(loss) ? "#999" : "#e53e3e")
+    .text(isNaN(loss) ? "—" : loss.toFixed(3));
+    
+  lossG.selectAll("text.loss-desc").data([1]).join("text")
+    .attr("x", 120).attr("y", 75)
+    .style("font", "11px system-ui").style("fill", "#718096")
+    .text(isNaN(loss) ? "" : "(lower is better)");
+
+  // sparkline
+  const pad = 14, sw = w-2*pad, sh = 50;
+  const x = d3.scaleLinear().domain([0, Math.max(1, lossHistory.length-1)]).range([0, sw]);
+  const y = d3.scaleLinear().domain([0, d3.max(lossHistory) || 1]).nice().range([sh, 0]);
+  const line = d3.line().x((d,i)=>x(i)).y(d=>y(d)).curve(d3.curveMonotoneX);
+
+  const spark = lossG.selectAll("g.spark").data([1]).join("g").attr("class","spark")
+    .attr("transform", `translate(${pad},${h-20-sh})`);
+  
+  spark.selectAll("text.spark-label").data([1]).join("text")
+    .attr("class", "spark-label")
+    .attr("x", 0).attr("y", -5)
+    .style("font", "10px system-ui").style("fill", "#718096")
+    .text("Training progress →");
+    
+  spark.selectAll("rect.bg").data([1]).join("rect").attr("class","bg")
+    .attr("width", sw).attr("height", sh).attr("fill","#fff5f5").attr("stroke","#feb2b2");
+  spark.selectAll("path.line").data([lossHistory]).join("path").attr("class","line")
+    .attr("fill","none").attr("stroke","#e53e3e").attr("stroke-width",2.5)
+    .transition().duration(600).attr("d", line);
+}
+
+// Weights heatmap (toy)
+function renderWeights() {
+  const {w,h} = layout.weights;
+  const cell = Math.min((w-20)/N, (h-35)/M);
+  const gx = 10, gy = 30;
+
+  weightsG.selectAll("text.title").data([1]).join("text")
+    .attr("x", 0).attr("y", 16).style("font","bold 14px system-ui")
+    .style("fill", "#1a202c")
+    .text("Model Parameters (toy weights)");
+    
+  weightsG.selectAll("text.subtitle").data([1]).join("text")
+    .attr("x", 0).attr("y", 32).style("font","11px system-ui")
+    .style("fill", "#718096")
+    .text("Updated via gradient descent • Red=positive, Blue=negative");
+
+  const cells = weightsG.selectAll("rect.cell").data(weights, (d,i)=>i);
+  cells.enter().append("rect").attr("class","cell")
+    .attr("width", cell-2).attr("height", cell-2)
+    .attr("x",(d,i)=>gx + (i%N)*cell).attr("y",(d,i)=>gy + Math.floor(i/N)*cell)
+    .attr("fill", d=>wColor(d)).attr("stroke","#fff").attr("stroke-width",1)
+  .merge(cells)
+    .transition().duration(600)
+    .attr("fill", d=>wColor(d));
+
+  cells.exit().remove();
+}
+
+// Fake single step of “training”
+function stepOnce() {
+  // 1) Show model predictions for the masked token
+  const trueToken = tokens[maskIndex];
+  const vocab = ["wolf","cat","fox","hen","bear","owl","goat","yak","fish","ant"];
+  
+  // Improve predictions over multiple rounds
+  // Start with poor predictions, improve with each round
+  const learningProgress = trainingRound / (roundsPerToken - 1); // 0 to 1
+  const probs = vocab.map(v => ({ token: v, p: Math.random()*0.15 }));
+  const idx = probs.findIndex(d=>d.token===trueToken);
+  
+  // Gradually increase probability of true token as training progresses
+  if (idx >= 0) {
+    probs[idx].p = 0.1 + learningProgress * 0.7 + Math.random()*0.1;
+  } else {
+    // True token not in vocab, use a proxy
+    const proxyIdx = Math.floor(Math.random() * probs.length);
+    probs[proxyIdx].token = trueToken;
+    probs[proxyIdx].p = 0.1 + learningProgress * 0.7 + Math.random()*0.1;
+  }
+  
+  const top5 = probs.sort((a,b)=>b.p-a.p).slice(0,5);
+  renderPred(top5);
+
+  // 2) Compute a fake cross-entropy
+  const pTrue = Math.max(1e-6, top5.find(d=>d.token===trueToken)?.p || 0.05);
+  const loss = -Math.log(pTrue);
+  lossHistory.push(loss);
+  renderLoss(loss);
+
+  // 3) Update weights (subtle random nudge toward "better")
+  weights = weights.map(w => w + d3.randomNormal(0, 0.05)());
+  renderWeights();
+
+  // 4) Show training progress
+  trainingRound++;
+  
+  // After training rounds are complete, reveal the word and move to next
+  if (trainingRound >= roundsPerToken) {
+    // Reveal ground-truth word briefly
+    const tokenNodes = sentenceG.selectAll("g.token");
+    tokenNodes.select("text")
+      .text((d,i)=> i===maskIndex ? trueToken : d);
+    
+    // Reset for next token
+    trainingRound = 0;
+    maskIndex = (maskIndex + 1) % tokens.length;
+    
+    setTimeout(()=> {
+      renderSentence();
+      // Re-mask the next token
+      sentenceG.selectAll("g.token").select("text")
+        .text((d,i)=> i===maskIndex ? "[MASK]" : d);
+    }, 2500);
+  } else {
+    // Continue training on same token, just re-render to show progress
+    setTimeout(()=> {
+      renderSentence();
+    }, 100);
+  }
+}
+
+// Initial render
+renderSentence();
+renderModel();
+renderPred([]);
+renderLoss(NaN);
+renderWeights();
+
+// Play loop (you can replace with UI controls)
+let timer = d3.interval(stepOnce, 5000);
+</script>
