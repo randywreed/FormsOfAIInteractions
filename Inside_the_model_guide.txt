@@ -1,0 +1,319 @@
+INSIDE THE MODEL: 3D NEURAL NETWORK VISUALIZATION
+A Plain-English Guide for Non-Technical Viewers
+=================================================
+
+WHAT YOU'RE WATCHING
+--------------------
+You're looking inside a neural network — the kind of "brain" that powers
+modern AI. Instead of showing you abstract diagrams or equations, this
+visualization represents the network as a 3D matrix of numbers floating
+in space. Every number you see is a weight, activation, or data point
+flowing through the model.
+
+Think of it like watching the Matrix, but these numbers have meaning:
+they're the actual computations happening inside an AI model as it
+processes information.
+
+
+THE BIG IDEA (30-SECOND VERSION)
+---------------------------------
+Neural networks are just giant collections of numbers. When you feed an
+AI model some input (like a sentence or an image), it doesn't "think"
+in the way humans do. Instead, it performs millions of mathematical
+operations on arrays of numbers.
+
+What you're seeing is a stylized representation of those numbers. Each
+digit (0-9) represents a value somewhere in the network — maybe a weight
+that gets multiplied by an input, or an activation that flows from one
+layer to the next.
+
+The numbers change continuously because:
+  1. Real neural networks constantly update their values during training.
+  2. Data flows through them in waves as new inputs are processed.
+  3. This visualization randomly updates numbers to simulate that dynamic
+     behavior.
+
+
+WHAT YOU'RE SEEING
+------------------
+
+The Matrix (Zoomed Out View)
+  When you first load the visualization, you see a 10×10×10 cube of
+  numbers — that's 1,000 individual digits total. They're arranged in
+  three dimensions:
+    • Width (X axis) — columns going left to right
+    • Height (Y axis) — rows going up to down  
+    • Depth (Z axis) — layers going front to back
+
+  The cube is green-on-black (like classic terminal displays or the
+  Matrix movie) to evoke the feeling of looking at raw computer data.
+
+  The numbers flicker and change randomly. About 10% of the digits
+  update every 200 milliseconds, simulating the continuous activity
+  inside a real neural network.
+
+Inside the Matrix (Zoomed In View)
+  Click anywhere on the screen to zoom in. Suddenly you're inside the
+  cube, surrounded by floating numbers.
+
+  As you zoom in, three things happen:
+    1. The camera moves closer to the center of the cube.
+    2. The numbers spread out so you can see the 3D structure.
+    3. Your mouse movement now controls the view — move your mouse to
+       rotate the entire matrix around you.
+
+  Numbers closer to the camera appear larger and brighter. Numbers far
+  away shrink and fade, giving you a sense of depth. This is called
+  "perspective projection" — the same technique used in 3D video games
+  and movies.
+
+  Click again to zoom back out.
+
+
+THE CONTROLS
+------------
+This visualization has only one control: click anywhere to toggle
+between zoomed-out and zoomed-in views.
+
+When zoomed in, move your mouse around the screen to rotate the matrix:
+  • Move your mouse left/right → rotates the cube horizontally
+  • Move your mouse up/down → rotates the cube vertically
+
+Try moving your mouse in a circle to see the cube spin. The rotation is
+smooth and follows your cursor in real time.
+
+
+WHY THIS REPRESENTATION?
+-------------------------
+You might be wondering: "Why show numbers as floating digits? What do
+they represent?"
+
+In a real neural network, every computation boils down to numbers:
+
+  • Weights: Numbers that determine how strongly one neuron connects to
+    another. These are learned during training. A weight of 0 means "no
+    connection." A large positive weight means "strong connection." A
+    negative weight means "inhibitory connection."
+
+  • Activations: Numbers that flow through the network when you give it
+    an input. If you feed an image into an image classifier, the raw
+    pixel values (0-255) get transformed into activations as they flow
+    through each layer.
+
+  • Gradients: During training, the network calculates how much each
+    weight should change to improve performance. These are also numbers,
+    and they flow backward through the network (backpropagation).
+
+This visualization doesn't distinguish between these types — it just
+shows you the essence of what a neural network is: a giant,
+multidimensional array of numbers that get updated and transformed
+constantly.
+
+
+THE 3D STRUCTURE
+----------------
+Why are the numbers arranged in a 3D cube?
+
+In reality, neural network parameters can have many dimensions — not
+just three. A typical language model might have tensors with shapes like:
+
+  • (768, 768) — A 2D matrix for a weight layer
+  • (12, 64, 768) — A 3D tensor for multi-head attention
+  • (50257, 768) — A huge 2D embedding table
+
+But visualizing more than three dimensions is hard (our brains are wired
+for 3D space). So this visualization uses a 3D cube as a metaphor for
+the multidimensional structure of a neural network.
+
+Think of each "layer" (slice along the Z axis) as representing one layer
+of the network:
+  • Front layers (small Z values) might represent early processing.
+  • Middle layers represent intermediate features.
+  • Back layers represent high-level abstractions.
+
+As you zoom in and rotate the cube, you can see how these layers stack
+on top of each other, like a sandwich of computation.
+
+
+WHAT THE NUMBERS MEAN (CONCEPTUALLY)
+-------------------------------------
+Each digit (0-9) you see is drawn randomly, but in a real neural
+network, these numbers would have specific meanings:
+
+  • 0-1: Small positive values. Might represent probabilities or
+         normalized activations.
+
+  • 2-5: Medium values. Could be intermediate activations or weights.
+
+  • 6-9: Larger values. Might represent strong signals or important
+         features.
+
+In reality, neural networks use floating-point numbers (like 0.7253 or
+-1.429), not just single digits. But showing full decimal numbers would
+clutter the visualization. Single digits give you the flavor of what's
+happening without overwhelming detail.
+
+The key insight is this: everything in a neural network is ultimately
+just numbers being added, multiplied, and transformed. There's no magic.
+When GPT writes a sentence or Stable Diffusion draws a picture, it's
+doing billions of arithmetic operations on numbers like the ones you see
+floating in this cube.
+
+
+WHAT TO TRY
+-----------
+Here are some things to explore while using the visualization:
+
+  1. Watch the numbers flicker for a while before zooming in. Notice how
+     about 10% of them change each time. This simulates the constant
+     activity in a real network.
+
+  2. Click to zoom in, then move your mouse slowly in a circle. Watch
+     how the entire matrix rotates smoothly. This helps you see the 3D
+     structure.
+
+  3. While zoomed in, hold your mouse still for a moment. Notice that
+     numbers near the center are largest and brightest, while numbers at
+     the edges fade away. This mimics how 3D graphics work.
+
+  4. Click to zoom out, then click in again. Each time you zoom in, the
+     perspective resets, and you're looking straight at the cube before
+     you start rotating with your mouse.
+
+  5. Think about scale. This cube has 1,000 numbers (10×10×10). A real
+     language model like GPT-3 has 175 billion parameters. If each number
+     in this visualization represented one billion parameters, you'd need
+     175 of these cubes to show GPT-3. And that's just the weights —
+     activations during inference would add even more.
+
+
+WHY THIS MATTERS
+----------------
+This visualization helps you develop an intuition for what's inside an
+AI model. When you hear phrases like:
+
+  • "The model has 7 billion parameters"
+     → Picture billions of these numbers, arranged in layers.
+
+  • "Training updates the weights"
+     → Picture these numbers flickering and changing as the model learns.
+
+  • "The network has 32 layers"
+     → Picture 32 slices of this cube, stacked front to back.
+
+  • "Activations flow forward, gradients flow backward"
+     → Picture numbers propagating through the depth of the cube in both
+       directions.
+
+Neural networks are often described as "black boxes" because their
+internal workings are hard to interpret. This visualization doesn't
+solve that problem (interpreting what specific weights mean is still
+cutting-edge research), but it does demystify the basic structure: it's
+numbers, all the way down.
+
+
+CONNECTING TO OTHER VISUALIZATIONS
+-----------------------------------
+This visualization is intentionally abstract. It shows you the raw
+"stuff" a neural network is made of, without getting into specifics like:
+
+  • What task the network is solving (classification? generation?)
+  • How the layers are connected (feedforward? attention? convolution?)
+  • What the inputs and outputs are (text? images? audio?)
+
+The other visualizations in this collection fill in those details:
+
+  • "Reinforcement Learning" shows how a network learns from rewards.
+  • "LLM Pre-training" shows how language models process text.
+  • "Diffusion Inference" shows how image generators work end-to-end.
+
+Think of "Inside the Model" as the foundation: it's what all neural
+networks are built from, regardless of their purpose.
+
+
+THE MATRIX AESTHETIC
+--------------------
+The green-on-black color scheme is a deliberate choice. It references:
+
+  1. The Matrix movies, where streams of green characters represent the
+     underlying code of the simulated reality.
+
+  2. Classic computer terminals (VT100, DOS, early Unix systems), where
+     green phosphor screens were the norm.
+
+  3. "Hacker culture" aesthetics, where green monospace text signifies
+     raw, unfiltered access to a system.
+
+In all of these contexts, the green numbers suggest you're looking at
+something fundamental — the lowest level of how the system works, below
+the user-friendly interface.
+
+That's exactly what this visualization is: a peek behind the curtain at
+the raw numerical computation powering modern AI.
+
+
+TECHNICAL NOTES (FOR THE CURIOUS)
+----------------------------------
+If you're interested in the implementation details:
+
+  • The 3D projection is done with basic trigonometry (cosine and sine
+    for rotation, perspective divide for depth). This is how 3D graphics
+    engines work before they hand off to the GPU.
+
+  • The numbers are sorted by Z-depth before rendering, so numbers in
+    front appear on top of numbers in back. This is called the "painter's
+    algorithm" (paint the back first, then paint over it with the front).
+
+  • The flickering is achieved by randomly updating 10% of the values
+    every 200ms. A real neural network would have more structured
+    updates (driven by input data and backpropagation), but the random
+    flickering gives the right feel.
+
+  • The mouse-based rotation maps your cursor position to rotation
+    angles: (clientX / width - 0.5) scales your mouse's X position from
+    -0.5 to +0.5, then multiplies by π to get an angle in radians.
+
+These techniques are the same ones used in 3D games, data visualization
+tools, and scientific simulations. The only difference is that here,
+we're visualizing abstract mathematical objects (neural network tensors)
+rather than physical objects (characters, terrain, molecules).
+
+
+GLOSSARY
+--------
+  Activation    A number that flows through the network when processing
+                an input. If you feed the network an image, the pixel
+                values turn into activations in the first layer, which
+                turn into new activations in the next layer, and so on.
+
+  Backpropagation  The algorithm used to train neural networks. It
+                calculates how much each weight should change to reduce
+                the loss, and those adjustments flow backward through
+                the network (opposite to the forward pass).
+
+  Gradient      A number that tells you how much a weight should change
+                during training. Calculated during backpropagation.
+
+  Layer         A slice of the network where all neurons at that level
+                are processed together. In this cube, you can think of
+                each Z-slice as one layer.
+
+  Matrix        A 2D array of numbers (rows and columns). Neural networks
+                are full of matrix multiplications.
+
+  Parameter     Another word for "weight." When you hear "GPT-3 has 175
+                billion parameters," it means 175 billion learnable
+                numbers.
+
+  Perspective   A method of projecting 3D points onto a 2D screen so
+  Projection    that things farther away appear smaller. The formula is:
+                screenX = X / Z, screenY = Y / Z (simplified).
+
+  Tensor        A multidimensional array of numbers. A vector is a 1D
+                tensor, a matrix is a 2D tensor, and this cube is a 3D
+                tensor. Real neural networks use tensors with many more
+                dimensions.
+
+  Weight        A learned parameter inside the network. During training,
+                weights start random and gradually adjust to solve the
+                task.
