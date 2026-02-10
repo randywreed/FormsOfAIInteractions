@@ -581,7 +581,7 @@ const boxW = diagW - 20;
 const boxData = [
   {
     y: 20, h: 155, title: "1. Forward Process (Training Data Prep)",
-    color: "#f6ad55", bg: "#2a2520",
+    color: "#e87a00", bg: "#fff5e6",
     lines: [
       "Take a real image x₀ from the training set.",
       "Gradually add Gaussian noise over T steps.",
@@ -593,7 +593,7 @@ const boxData = [
   },
   {
     y: 190, h: 180, title: "2. Training the Neural Network (U-Net)",
-    color: "#63b3ed", bg: "#1e2535",
+    color: "#2c7bb6", bg: "#e6f3ff",
     lines: [
       "The network εθ learns to PREDICT the noise.",
       "Input: noisy image xₜ + timestep t",
@@ -606,7 +606,7 @@ const boxData = [
   },
   {
     y: 385, h: 165, title: "3. Reverse Process (Generating New Images!)",
-    color: "#68d391", bg: "#1e2920",
+    color: "#2d8a4d", bg: "#e6f7ed",
     lines: [
       "Start from pure random noise xT ~ N(0, I).",
       "For t = T down to 1:",
@@ -618,7 +618,7 @@ const boxData = [
   },
   {
     y: 565, h: 120, title: "4. Guidance & Conditioning (Text → Image)",
-    color: "#d6bcfa", bg: "#25202e",
+    color: "#8b5dbf", bg: "#f5f0ff",
     lines: [
       "Text prompt → CLIP encoder → embedding vector",
       "Embedding is fed to U-Net via cross-attention.",
