@@ -1,0 +1,469 @@
+LLM PRE-TRAINING: HOW LANGUAGE MODELS LEARN
+A Plain-English Guide for Non-Technical Viewers
+================================================
+
+WHAT YOU'RE WATCHING
+--------------------
+You're watching a simplified version of how large language models (like
+GPT, BERT, and others) learn from text during pre-training. This is the
+first stage of training where the model reads billions of words and
+learns to predict missing words based on context.
+
+Nobody is teaching the model what specific words mean or giving it
+labeled examples. Instead, the model learns entirely from patterns in
+raw text — the same way you might learn a new language by reading books
+and filling in blanks.
+
+
+THE BIG IDEA (30-SECOND VERSION)
+---------------------------------
+Imagine you're reading a sentence with one word covered up:
+
+  "The quick brown _____ jumps over the lazy dog."
+
+Even though you can't see the hidden word, you can guess it's probably
+"fox" or maybe "rabbit" or "cat" — something that jumps. You know this
+because you've read thousands of sentences before and learned patterns
+about what words go where.
+
+That's exactly what this visualization shows. The model sees a sentence
+with one word masked out (shown as [MASK]), tries to guess what belongs
+there, checks whether it was right, and adjusts its internal parameters
+to get better at guessing next time.
+
+Do this billions of times on billions of sentences, and you get a model
+that deeply understands language — even though it was never explicitly
+taught grammar, facts, or meanings.
+
+
+THE TRAINING LOOP (THE FIVE STEPS)
+-----------------------------------
+The visualization shows a repeating cycle with five stages. These
+correspond to the five steps labeled on the screen:
+
+  ① Input: Mask random token
+     One word in the sentence is hidden and replaced with [MASK]. The
+     model's job is to predict what word was there.
+
+  ② Transformer: Process context
+     The model reads all the other words in the sentence (the "context")
+     and uses them to build an understanding of what the missing word
+     might be. This happens inside the Transformer layers.
+
+  ③ Predict masked token
+     Based on the context, the model outputs a probability distribution
+     over its entire vocabulary — essentially a guess for every word it
+     knows, ranked by likelihood.
+
+  ④ Calculate loss
+     The model's prediction is compared to the actual word that was
+     masked. The "loss" is a number that measures how wrong the guess
+     was. Lower loss = better prediction.
+
+  ⑤ Backprop & update
+     The model adjusts its internal weights (parameters) slightly to
+     reduce the loss. This is called backpropagation and gradient
+     descent — the model learns from its mistake.
+
+Then the cycle repeats with a new masked word. Over many repetitions,
+the model gets better and better at predicting masked words.
+
+
+WHAT YOU'RE SEEING
+------------------
+
+The Sentence (top)
+  This panel shows the input sentence: "The quick brown fox jumps over
+  the lazy dog."
+
+  One word at a time is highlighted in yellow and replaced with [MASK].
+  The model doesn't know what word was there — it has to guess based on
+  the surrounding words.
+
+  Every few seconds, the mask moves to a different word, and the model
+  trains on that position.
+
+The Transformer Model (left, below sentence)
+  This box represents the neural network — the "brain" of the language
+  model. It contains:
+
+  • Token embeddings (top row of circles)
+    Each word is converted into a numerical representation (a vector).
+    The masked token is shown in yellow; the others are blue.
+
+  • Self-attention (middle lines)
+    The model looks at how each word relates to the others. Lines
+    connecting the tokens show attention flow. The masked token "pays
+    attention" to all the other words to gather clues about what it
+    might be. The red pulsing lines show attention flowing from the
+    masked token.
+
+  • Transformer layers (three blue boxes)
+    These are the processing stages. Each layer refines the
+    representation of each token, mixing information from neighboring
+    words via attention and feedforward networks (FFN).
+
+  • Contextual representations (bottom row of circles)
+    After processing, each token has a new, context-aware representation.
+    The masked token's representation (shown in gold) now contains
+    information from the entire sentence. This is what the model uses to
+    make its prediction.
+
+Top Predictions for [MASK] (right, top)
+  This panel shows the model's top 5 guesses for the masked word, along
+  with the probability (confidence) for each guess.
+
+  Early in training, the model's guesses are random and wrong. The true
+  word might be ranked 5th or not even in the top 5. The probabilities
+  are spread out fairly evenly.
+
+  As training progresses on the same word, you'll see:
+    • The true word rises toward the top.
+    • Its probability increases (longer bar).
+    • Other guesses become less likely (shorter bars).
+
+  After a few training rounds on the same masked position, the model
+  learns to predict that word with high confidence.
+
+Loss (Cross-Entropy) (bottom left)
+  This panel shows a single number: the loss. Loss measures how far off
+  the model's prediction was.
+
+  • High loss (e.g., 3.5) = The model guessed wrong or was very
+    uncertain. The true word had low probability.
+
+  • Low loss (e.g., 0.2) = The model guessed correctly with high
+    confidence. The true word had probability close to 100%.
+
+  The goal of training is to make the loss go down. Below the loss
+  number, there's a sparkline chart showing how the loss has changed
+  over time. You'll see it trend downward as the model learns.
+
+  The loss is calculated using cross-entropy, a mathematical formula
+  that penalizes wrong guesses heavily. If the model assigns 1%
+  probability to the true word, the loss is about 4.6. If it assigns
+  99% probability, the loss is about 0.01.
+
+Model Parameters (toy weights) (bottom right)
+  This heatmap shows a simplified representation of the model's internal
+  parameters — the numbers it adjusts during learning.
+
+  In a real language model, there are billions of these numbers. This
+  visualization shows just an 8×8 grid (64 numbers) so you can see them
+  update in real time.
+
+  • Red cells = positive weights (the model connects these concepts)
+  • Blue cells = negative weights (the model inhibits these connections)
+  • Color intensity = strength of the weight
+
+  Watch closely: after each training step, some of the numbers change.
+  The model is adjusting its parameters based on the gradient (the
+  direction that reduces loss). Over time, the pattern of red and blue
+  cells stabilizes as the model learns the structure of language.
+
+
+HOW THE MODEL LEARNS
+---------------------
+Here's what's happening under the hood during each training step:
+
+  1. Forward Pass (Steps ① → ③)
+     The sentence flows through the model from input to output. The
+     tokens get converted to embeddings, processed through attention and
+     feedforward layers, and finally produce a prediction for the masked
+     word. This is called the "forward pass" because information flows
+     forward through the network.
+
+  2. Loss Calculation (Step ④)
+     The model compares its prediction to the true word. If the model
+     predicted "fox" with 80% probability and the true word was "fox,"
+     the loss is low. If it predicted "hen" with 40% probability, the
+     loss is high.
+
+  3. Backward Pass (Step ⑤)
+     Now the magic happens. The model calculates how each of its
+     billions of parameters contributed to the error. It asks: "If I
+     change this weight by a tiny amount, will the loss go up or down?"
+     This is called backpropagation.
+
+     Then it adjusts every weight slightly in the direction that reduces
+     the loss. This is gradient descent — descending the "hill" of error
+     by taking small steps downward.
+
+  4. Repeat Millions of Times
+     The model sees millions of different sentences with millions of
+     different masked words. Gradually, it learns general patterns:
+       • Adjectives come before nouns.
+       • Verbs need subjects.
+       • "The quick brown ____" is probably an animal.
+       • "Paris is the capital of ____" is probably "France."
+
+     These patterns aren't explicitly programmed — they emerge from the
+     statistics of language.
+
+
+THE SELF-SUPERVISED LEARNING TRICK
+-----------------------------------
+Here's the clever part: the model doesn't need labeled data. You don't
+need humans to annotate millions of sentences saying "this word should
+go here." The training data creates its own labels:
+
+  1. Start with a sentence from the internet: "The quick brown fox..."
+  2. Randomly mask one word: "The quick brown [MASK]..."
+  3. The model predicts the masked word.
+  4. Compare the prediction to the original sentence. You already know
+     the answer — it was "fox"!
+  5. Update the model to get better at this prediction.
+
+This is called "self-supervised learning" because the supervision signal
+comes from the data itself, not from human annotations. It's why we can
+pre-train language models on huge amounts of text scraped from the web —
+we don't need anyone to manually label it.
+
+
+WHAT TO WATCH FOR
+-----------------
+As the visualization runs, look for these patterns:
+
+  Early Training (first few cycles on a word)
+    • The top predictions are random and scattered.
+    • The true word might not even appear in the top 5.
+    • Loss is high (3–5).
+    • The weights (bottom right) change dramatically.
+
+  Mid Training (after 2–3 cycles)
+    • The true word starts appearing in the top 5.
+    • Its probability grows (bar gets longer).
+    • Loss decreases (2–3).
+    • Weights stabilize somewhat.
+
+  Late Training (final cycle before moving on)
+    • The true word jumps to #1 or #2.
+    • Its probability is 70–90%.
+    • Loss is low (0.5–1.5).
+    • Weights change less — the model has learned this pattern.
+
+  Moving to the Next Word
+    • After 4 training rounds on the same masked position, the [MASK]
+      briefly reveals the true word (so you can see the answer).
+    • Then the mask moves to the next word in the sentence.
+    • Training starts over on the new word.
+
+Notice that the model doesn't learn perfectly on the first try. It takes
+multiple training steps on the same example to adjust its weights
+correctly. In real pre-training, the model sees each sentence only once,
+but it sees so many similar sentences that the patterns still emerge.
+
+
+KEY CONCEPTS EXPLAINED
+-----------------------
+
+Masked Language Modeling (MLM)
+  This specific training method — masking words and predicting them —
+  was popularized by BERT (Bidirectional Encoder Representations from
+  Transformers). It's one of several pre-training strategies.
+
+  Other models use different methods:
+    • GPT uses "next token prediction" (predict the next word, not a
+      masked middle word).
+    • T5 uses "span corruption" (mask out entire phrases).
+
+  But the core idea is the same: learn from raw text by predicting parts
+  of it.
+
+Attention
+  The pulsing red lines in the Transformer panel show "self-attention."
+  This is how the model figures out which words are relevant to each
+  other.
+
+  For example, if the sentence is "The cat sat on the mat," and you mask
+  "cat," the model needs to pay attention to "sat" and "mat" to infer
+  that the missing word is an animal (things that sit on mats). It also
+  attends to "the" to know it's singular.
+
+  Attention is calculated as a weighted average: the model assigns a
+  score to each word pair, then mixes their representations proportional
+  to the scores. This lets information flow between words.
+
+Cross-Entropy Loss
+  This is a standard loss function for classification tasks. Since
+  predicting a masked word is classification (pick one word from a
+  vocabulary of thousands), cross-entropy makes sense.
+
+  The formula is:
+    L = -log(p_true)
+
+  Where p_true is the probability the model assigned to the true word.
+
+    • If p_true = 1.0 (perfect prediction), loss = 0.
+    • If p_true = 0.5 (50% sure), loss ≈ 0.69.
+    • If p_true = 0.1 (90% wrong), loss ≈ 2.30.
+    • If p_true = 0.01 (99% wrong), loss ≈ 4.61.
+
+  The logarithm heavily penalizes low probabilities, which forces the
+  model to be confident and correct.
+
+Gradient Descent
+  This is the optimization algorithm that updates the model's weights.
+  The "gradient" is a mathematical object (technically a vector) that
+  points in the direction of steepest increase in loss. Gradient descent
+  moves in the opposite direction — downward — to minimize loss.
+
+  The weights don't change all at once. Each update is small (controlled
+  by a "learning rate"). You take millions of tiny steps, and
+  eventually, the model converges to a good solution.
+
+
+WHY THIS MATTERS
+----------------
+Pre-training is the foundation of modern AI language systems. By
+learning from massive amounts of text (books, websites, articles), these
+models develop a rich understanding of:
+
+  • Grammar and syntax (how sentences are structured)
+  • Semantics (what words mean)
+  • World knowledge (Paris is in France, water is wet, etc.)
+  • Common sense reasoning (birds can fly, rocks can't)
+
+Once pre-trained, the model can be fine-tuned on specific tasks:
+  • Question answering
+  • Summarization
+  • Translation
+  • Code generation
+  • Chatbot conversations (like ChatGPT)
+
+The pre-training stage does most of the heavy lifting. Fine-tuning is
+relatively quick and cheap because the model already "knows" language —
+you're just teaching it to apply that knowledge in a specific way.
+
+
+REAL-WORLD SCALE
+----------------
+This visualization shows a toy example with:
+  • 9 words in the sentence
+  • 64 parameters in the weight matrix
+  • 17 words in the vocabulary
+
+Real language models are much, much larger:
+
+  • GPT-3: 175 billion parameters, 50,257 vocabulary size, trained on
+    300 billion tokens (words).
+
+  • GPT-4: Estimated 1+ trillion parameters.
+
+  • Training takes weeks or months on thousands of GPUs.
+
+  • Training costs millions of dollars in compute resources.
+
+But the fundamental process is the same: mask a word, predict it,
+calculate loss, update weights, repeat. Scaled up billions of times.
+
+
+CONNECTING TO OTHER MODELS
+---------------------------
+This visualization shows masked language modeling, which is used by:
+  • BERT and its variants (RoBERTa, ALBERT, DeBERTa)
+  • ELECTRA (a more efficient variant)
+
+Other models use related but different pre-training tasks:
+
+  • GPT (Generative Pre-trained Transformer): Predicts the next word
+    instead of a masked word. Trained to generate text left-to-right.
+
+  • T5 (Text-to-Text Transfer Transformer): Treats every task as
+    text-to-text (input some text, output some text). Uses span
+    corruption (mask out phrases, not just words).
+
+  • BERT is bidirectional (reads context from both sides of the mask).
+    GPT is unidirectional (reads context only from the left).
+
+Despite these differences, the core loop is the same:
+  1. Give the model some text with part of it missing or obscured.
+  2. Make the model predict the missing part.
+  3. Calculate loss and update weights.
+  4. Repeat on billions of examples.
+
+
+WHAT TO TRY
+-----------
+While watching the visualization, try focusing on different panels:
+
+  1. Watch just the sentence panel (top). Notice how the [MASK] moves
+     from word to word. Think about which words are easy to predict
+     (like "the" — very common) versus hard (like "fox" — depends on
+     context).
+
+  2. Watch the Top Predictions panel. See if you can predict which word
+     will rise to the top before the model figures it out. Are the
+     model's wrong guesses plausible? (For "fox," guessing "cat" is
+     reasonable. Guessing "quick" doesn't make sense.)
+
+  3. Watch the Loss sparkline. Notice that the loss decreases as
+     training progresses. Each time the mask moves to a new word, the
+     loss jumps up (the model doesn't know this new word yet), then
+     drops down as it learns.
+
+  4. Watch the Weights heatmap. See which cells change the most. In a
+     real model, the weights that get updated most are the ones that
+     were most "responsible" for the error. Weights far from the mistake
+     change very little.
+
+  5. Count how many training rounds it takes for the model to confidently
+     predict each word. Some words (like "The") might be learned quickly.
+     Others (like "fox") might take more rounds.
+
+
+GLOSSARY
+--------
+  Attention     A mechanism that lets the model focus on relevant words
+                when processing a token. Calculated as a weighted average
+                based on similarity scores.
+
+  Backprop      Backpropagation. The algorithm that calculates how much
+                each weight contributed to the loss, so we know how to
+                adjust it.
+
+  BERT          Bidirectional Encoder Representations from Transformers.
+                A famous language model trained with masked language
+                modeling. Released by Google in 2018.
+
+  Cross-        A loss function for classification. Measures the
+  Entropy       difference between predicted probabilities and the true
+                label.
+
+  Embedding     A learned numerical representation of a token (word). A
+                vector of numbers (e.g., 768 dimensions) that captures
+                the meaning and properties of that word.
+
+  Gradient      The direction in which the loss increases most steeply.
+  Descent       We move in the opposite direction (descend the gradient)
+                to minimize loss.
+
+  Loss          A number that measures how wrong the model's prediction
+                was. Lower is better.
+
+  [MASK]        A special token that replaces a word during training. The
+                model's job is to predict what word was there.
+
+  MLM           Masked Language Modeling. A pre-training method where
+                random words are masked and the model predicts them.
+
+  Parameter     A learnable number inside the model (a weight or bias).
+                Large language models have billions of these.
+
+  Pre-training  The first stage of training where the model learns
+                general language understanding from massive amounts of
+                unlabeled text.
+
+  Self-         Learning from unlabeled data by creating labels
+  Supervised    automatically (e.g., masking words and using the original
+                text as the "answer").
+
+  Transformer   A neural network architecture that uses attention to
+                process sequences (like sentences). The backbone of
+                modern language models.
+
+  Token         A unit of text, usually a word or subword. Models process
+                text as sequences of tokens.
+
+  Vocabulary    The set of all tokens the model knows. Typically 30,000–
+                100,000 tokens for language models.

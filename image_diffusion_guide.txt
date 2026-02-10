@@ -1,0 +1,365 @@
+HOW IMAGE DIFFUSION MODELS WORK
+A Plain-English Guide for Non-Technical Viewers
+================================================
+
+WHAT YOU'RE WATCHING
+--------------------
+You're watching the core process that powers AI image generators like
+DALL·E, Midjourney, and Stable Diffusion. The visualization shows how
+these models take pure random noise and gradually turn it into coherent
+images — or the reverse: how they destroy an image by adding noise to it.
+
+This isn't about generating specific pictures from text prompts (that's
+covered in the other diffusion visualization). This is about the
+fundamental mechanism underneath: the diffusion process itself.
+
+
+THE BIG IDEA (30-SECOND VERSION)
+---------------------------------
+Imagine you have a photograph and you slowly add static noise to it —
+like TV static — until the photo is completely unrecognizable. That's
+the "forward process."
+
+Now imagine you could teach a computer to run that process backward:
+hand it pure static, and have it gradually remove the noise until a
+clear picture emerges. That's the "reverse process," and it's what
+diffusion models learn to do.
+
+The visualization lets you watch both directions: forward (adding noise)
+and reverse (removing noise). You can see the image slowly dissolve into
+chaos, or watch chaos slowly resolve into a recognizable picture.
+
+
+THE CONTROLS
+------------
+At the top of the visualization, you have several buttons and sliders:
+
+  ▶ Forward (Add Noise)  — Starts the forward process. The clean image
+                           gradually gets noisier until it becomes pure
+                           random static.
+
+  ◀ Reverse (Denoise)    — Starts the reverse process. Pure noise
+                           gradually becomes a clean image. This is what
+                           the model does when generating new pictures.
+
+  ⏸ Pause                — Freezes the animation at the current timestep
+                           so you can examine it closely.
+
+  ↺ Reset                — Jumps back to the starting position (t=0 for
+                           forward, t=40 for reverse).
+
+  🎨 New Image           — Loads a different sample image (heart, star,
+                           smiley face, or tree) so you can see how the
+                           process works on different pictures.
+
+  Speed                  — Controls how fast the animation runs. Slide
+                           right for faster, left for slower.
+
+  Guidance Scale         — This slider shows the "s" parameter used in
+                           classifier-free guidance during text-to-image
+                           generation. In this visualization, it's just
+                           displayed for reference — changing it doesn't
+                           affect the simple forward/reverse demo. (The
+                           guidance scale matters when you're generating
+                           images from text prompts, which is shown in
+                           the other diffusion visualization.)
+
+
+WHAT YOU'RE SEEING
+------------------
+
+Current Image State (top left)
+  This is the main canvas. It shows the image at the current timestep.
+  Below the image, you'll see:
+    • t = X        The current timestep (0 to 40).
+    • Noise: X%    How much noise is currently in the image.
+    • Status       "Adding noise..." or "Denoising..."
+
+  At t=0, the image is perfectly clean. At t=40, it's pure random noise.
+  Everything in between is a blend of the two.
+
+Diffusion Timeline (middle)
+  This row of small thumbnails shows snapshots of the image at nine
+  different timesteps, from clean (left) to noisy (right).
+
+  The orange arrow above the thumbnails shows the forward process: clean
+  image → noise. The math notation q(xₜ | xₜ₋₁) means "the probability
+  of getting xₜ given xₜ₋₁" — in plain English, "how we go from one
+  step to the next when adding noise."
+
+  The green arrow below shows the reverse process: noise → clean image.
+  The notation pθ(xₜ₋₁ | xₜ) means "the learned probability of going
+  backward" — this is what the neural network learns during training.
+
+  The blue glowing box highlights which thumbnail matches your current
+  timestep.
+
+Noise Schedule (bottom left)
+  This chart shows how the noise level changes over time.
+
+  The orange line is "Noise" — it starts at 0% (no noise) and rises to
+  100% (pure noise). The blue line is "Signal" — the opposite, showing
+  how much of the original image remains.
+
+  The white vertical dashed line and glowing dot show where you are in
+  the process right now.
+
+  The curve shape is important. This visualization uses a "cosine
+  schedule," which means the noise is added slowly at first, then faster
+  in the middle, then slowly again near the end. This produces better
+  results than adding noise at a constant rate.
+
+How Diffusion Works (right side)
+  This panel explains the four key concepts behind diffusion models:
+
+  1. Forward Process (Training Data Prep)
+     This is the mathematical process of adding noise to an image. It's
+     not something the neural network learns — it's just a formula. You
+     start with a real image x₀ and gradually mix it with random noise
+     over T steps using the equation:
+
+       xₜ = √ᾱₜ · x₀  +  √(1 − ᾱₜ) · ε
+
+     Don't worry about the math. All it means is: "blend the original
+     image with some random noise, where the blend ratio depends on the
+     timestep t." By t=T, the image is completely destroyed.
+
+  2. Training the Neural Network (U-Net)
+     During training, the model sees millions of noisy images at various
+     timesteps and learns to predict what noise was added. The network
+     takes in a noisy image xₜ and a timestep t, and outputs a guess for
+     the noise ε̂.
+
+     The loss function measures how close the guess is to the actual
+     noise: L = ‖ ε − εθ(xₜ, t) ‖². The network adjusts its weights to
+     minimize this error.
+
+     The U-Net architecture (shaped like the letter U) is especially
+     good at this because it has "skip connections" that preserve fine
+     details while processing the image.
+
+  3. Reverse Process (Generating New Images!)
+     Once trained, the network can run the process backward. You start
+     with pure random noise xT and repeatedly ask the network: "What
+     noise do you think is in this image?" Then you subtract that
+     predicted noise to get a slightly cleaner image xₜ₋₁.
+
+     Repeat this T times, and you end up with a brand-new realistic
+     image that looks like it could have come from the training set —
+     but nobody drew it. The model created it from scratch.
+
+  4. Guidance & Conditioning (Text → Image)
+     This is how you get the model to follow a text prompt. You encode
+     the text (like "a red heart on dark background") into a vector
+     using CLIP, then feed that vector into the U-Net via
+     "cross-attention" layers.
+
+     Classifier-free guidance (CFG) amplifies the effect of the text by
+     running the network twice per step — once with the text and once
+     without — and then pushing the output in the direction that makes
+     it more like the text:
+
+       ε̂ = εuncond + s · (εcond − εuncond)
+
+     The guidance scale "s" controls how strongly the model follows the
+     prompt. Higher s = more literal adherence to the text.
+
+  The dashed white box on the right side highlights which process is
+  currently active: the forward process (orange) or the reverse process
+  (green).
+
+
+THE FORWARD PROCESS (ADDING NOISE)
+-----------------------------------
+When you click ▶ Forward (Add Noise), you'll see the clean image
+gradually become noisier.
+
+What's happening:
+  • At t=0, the image is 100% original and 0% noise.
+  • At each timestep, a little more noise is mixed in.
+  • The noise isn't flickering or random — it's the same noise pattern
+    every time, interpolated smoothly as t increases. This is why the
+    animation looks smooth and continuous rather than jittery.
+  • By t=40, the image is 100% noise. You can't see any trace of the
+    original picture anymore. It looks like TV static.
+
+The forward process is deterministic. If you reset and run it again
+with the same image, you'll see the exact same sequence. The only
+randomness is in the initial noise pattern itself (which you can change
+by clicking 🎨 New Image).
+
+Why does this matter? Because during training, the model needs to learn
+how to undo this exact process. The forward process is how you create
+training data: take a clean image, noise it to various levels, and
+teach the network to guess what noise was added.
+
+
+THE REVERSE PROCESS (DENOISING)
+--------------------------------
+When you click ◀ Reverse (Denoise), you start at t=40 (pure noise) and
+work backward to t=0 (clean image).
+
+What's happening:
+  • The model predicts what noise is in the current image.
+  • It subtracts that predicted noise to get a slightly cleaner version.
+  • This happens step by step, 40 times in total.
+  • By the end, you're back to the clean original image (or as close as
+    the model can reconstruct it).
+
+In a real diffusion model generating new images, the starting noise at
+t=40 would be completely random — different every time — so you'd get a
+different image each time you run the reverse process. In this
+visualization, the noise is fixed so you can see the process clearly.
+
+Watch closely as the reverse process runs. You'll notice:
+  • Early steps (t=40 → t=30): The image is still mostly noise, but you
+    might start to see vague shapes or colors emerge.
+  • Middle steps (t=30 → t=15): The overall structure becomes visible.
+    You can tell if it's a heart, star, smiley, or tree, but the edges
+    are fuzzy.
+  • Late steps (t=15 → t=0): Fine details sharpen. The image becomes
+    crisp and clean.
+
+This mirrors what happens in real image generation: coarse structure
+first, fine details last.
+
+
+THE MATH (IF YOU'RE CURIOUS)
+-----------------------------
+You don't need to understand the equations to appreciate the
+visualization, but if you're curious, here's what they mean:
+
+Forward process equation:
+  xₜ = √ᾱₜ · x₀  +  √(1 − ᾱₜ) · ε
+
+  • x₀ is the original clean image.
+  • xₜ is the image at timestep t (partly noisy).
+  • ε is a sample of pure random noise (from a Gaussian distribution).
+  • ᾱₜ is a number between 0 and 1 that controls the blend ratio. When
+    t=0, ᾱₜ ≈ 1, so xₜ ≈ x₀ (mostly original image). When t=T, ᾱₜ ≈ 0,
+    so xₜ ≈ ε (mostly noise).
+
+This is just a weighted average. You're mixing the clean image with
+noise, where the weights depend on the timestep.
+
+Reverse process prediction:
+  ε̂ = εθ(xₜ, t)
+
+  • εθ is the neural network (subscript θ means "with learned weights").
+  • Given a noisy image xₜ and a timestep t, the network outputs its
+    best guess ε̂ for what noise is in the image.
+
+Once you have ε̂, you can rearrange the forward equation to solve for x₀
+(or, more practically, for xₜ₋₁, the slightly less noisy version), and
+that's how you take one step backward.
+
+Loss function:
+  L = ‖ ε − εθ(xₜ, t) ‖²
+
+  This is just the squared difference between the true noise ε (which we
+  know, because we added it ourselves during training) and the network's
+  prediction ε̂. The network adjusts its weights to make this difference
+  as small as possible.
+
+
+WHAT TO TRY
+-----------
+Here are some experiments to help you understand diffusion:
+
+  1. Run the forward process all the way to t=40, then run the reverse
+     process all the way back. Notice how the image is (almost)
+     perfectly reconstructed. This shows that the noising and denoising
+     are truly inverses of each other.
+
+  2. Pause the animation halfway (around t=20). Look at the image and
+     the noise schedule chart. At t=20, the image is about 50% original
+     signal and 50% noise. Can you still recognize what the image is?
+     For simple images like a heart or star, you usually can.
+
+  3. Click 🎨 New Image and switch between the different sample images.
+     Notice that the noise pattern is different each time. The forward
+     and reverse processes work the same way regardless of the image.
+
+  4. Watch the thumbnails in the filmstrip. Notice that the transitions
+     are smooth and gradual. This is critical for diffusion to work well
+     — if the noise was added all at once, the network would have no way
+     to learn the gradual structure.
+
+  5. Look at the right-side panel while the animation runs. When you're
+     in forward mode, the orange box (Forward Process) is highlighted.
+     When you switch to reverse mode, the green box (Reverse Process)
+     lights up.
+
+
+WHY THIS MATTERS
+----------------
+Diffusion models are the state-of-the-art technique for image
+generation. They've largely replaced GANs (Generative Adversarial
+Networks) because they:
+
+  • Produce higher-quality images with fewer artifacts.
+  • Are more stable to train (GANs are notoriously finicky).
+  • Can be conditioned on text, making text-to-image generation possible.
+
+The same underlying idea — learning to reverse a gradual noise process —
+is now being applied to:
+
+  • Video generation (Sora, Runway Gen-2, Pika)
+  • Audio and music synthesis
+  • 3D model generation
+  • Drug molecule design (diffusing in chemical space)
+  • Even text generation (diffusion-based language models)
+
+Understanding how the forward and reverse processes work gives you the
+foundation for understanding all of these applications. The specific
+details change (different noise schedules, different network
+architectures, different data types), but the core loop is always the
+same:
+
+  1. Define a forward process that gradually destroys your data.
+  2. Train a network to predict the noise at each step.
+  3. Run the process backward to generate new data.
+
+
+GLOSSARY
+--------
+  Cosine       A specific formula for how noise is added over time. It
+  Schedule     starts slow, speeds up in the middle, and slows down
+               again at the end. Better than adding noise linearly.
+
+  Denoising    Removing noise from an image. The reverse process is a
+               series of denoising steps.
+
+  Diffusion    The overall process of gradually adding noise (forward)
+               and removing noise (reverse). Named after how particles
+               diffuse in physics.
+
+  Forward      The mathematical process of adding noise to an image over
+  Process      many steps. Not learned — it's just a formula.
+
+  Gaussian     Random numbers drawn from a bell curve (mean 0, standard
+  Noise        deviation 1). This is the type of noise used in diffusion.
+
+  Guidance     Classifier-Free Guidance. A technique that controls how
+  Scale (s)    closely the generated image follows a text prompt.
+               Higher = more faithful to the prompt.
+
+  Reverse      The learned process of removing noise step by step to
+  Process      generate (or reconstruct) an image. This is what the
+               neural network does.
+
+  Signal       The part of the image that's original (not noise). At
+               t=0, signal=100%. At t=T, signal=0%.
+
+  Timestep (t) A number from 0 to T indicating where you are in the
+               diffusion process. t=0 is clean, t=T is pure noise.
+
+  U-Net        A neural network architecture shaped like the letter U.
+               It has skip connections that help preserve fine details.
+               The workhorse of most diffusion models.
+
+  xₜ           The image at timestep t. x₀ is the clean image, xT is
+               pure noise, and everything in between is a blend.
+
+  ε (epsilon)  The noise that gets added to the image. The network's
+               job is to predict this.
