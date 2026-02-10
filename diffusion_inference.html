@@ -330,10 +330,10 @@ CONNECTIONS.forEach(conn => {
       .attr("x", mx - lblWidth/2).attr("y", my - 11)
       .attr("width", lblWidth).attr("height", 16)
       .attr("rx", 4)
-      .attr("fill", "#1a1d2e")
+      .attr("fill", "#f7fafc")
       .attr("stroke", color)
       .attr("stroke-width", 0.8)
-      .attr("opacity", 0.9);
+      .attr("opacity", 0.95);
     gConns.append("text")
       .attr("x", mx).attr("y", my)
       .attr("text-anchor", "middle")
@@ -375,10 +375,10 @@ STAGES.forEach((stage, i) => {
     .attr("class", "stage-bg")
     .attr("width", stage.w).attr("height", stage.h)
     .attr("rx", 10)
-    .attr("fill", "#1a1d2e")
+    .attr("fill", "#f7fafc")
     .attr("stroke", stage.color)
     .attr("stroke-width", 1.5)
-    .attr("opacity", 0.85);
+    .attr("opacity", 0.9);
 
   // Icon + label
   const lines = stage.label.split("\n");
@@ -630,7 +630,7 @@ gDenoiseBar.append("text").attr("y", 0)
 // Background bar
 gDenoiseBar.append("rect")
   .attr("y", 8).attr("width", denoiseBarW).attr("height", 18)
-  .attr("rx", 4).attr("fill","#2d3748").attr("stroke","#4a5568");
+  .attr("rx", 4).attr("fill","#e2e8f0").attr("stroke","#cbd5e0");
 
 // Fill bar
 const denoiseBarFill = gDenoiseBar.append("rect")
@@ -772,7 +772,7 @@ function showVaeDiagram() {
     .attr("x", vaeBoxX).attr("y", 0)
     .attr("width", 120).attr("height", latSize)
     .attr("rx", 8)
-    .attr("fill", "#2d1a1a").attr("stroke", "#fc8181").attr("stroke-width", 1.5);
+    .attr("fill", "#fff5f5").attr("stroke", "#fc8181").attr("stroke-width", 1.5);
   gVaeDiagram.append("text")
     .attr("x", vaeBoxX + 60).attr("y", 25)
     .attr("text-anchor","middle")
@@ -1146,8 +1146,8 @@ PROMPTS.forEach((p, i) => {
   g.append("rect")
     .attr("width", 200).attr("height", 24)
     .attr("rx", 5)
-    .attr("fill", "#2d3748")
-    .attr("stroke", "#4a5568");
+    .attr("fill", "#f7fafc")
+    .attr("stroke", "#cbd5e0");
 
   g.append("text")
     .attr("x", 8).attr("y", 16)
@@ -1188,7 +1188,7 @@ unetLayers.forEach((layer, i) => {
   g.append("rect")
     .attr("width", layer.w).attr("height", layer.h)
     .attr("rx", 5)
-    .attr("fill", "#1e2535")
+    .attr("fill", "#f7fafc")
     .attr("stroke", layer.color)
     .attr("stroke-width", 1.5);
 

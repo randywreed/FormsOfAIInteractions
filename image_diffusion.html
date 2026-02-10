@@ -427,8 +427,8 @@ const thumbGroups = gFilmstrip.selectAll("g.thumb")
 thumbGroups.append("rect")
   .attr("width", thumbSize).attr("height", thumbSize)
   .attr("rx", 3)
-  .attr("fill", "#2d3748")
-  .attr("stroke", "#4a5568")
+  .attr("fill", "#f7fafc")
+  .attr("stroke", "#cbd5e0")
   .attr("stroke-width", 1);
 
 // Mini pixel rendering in thumbnails
@@ -490,8 +490,8 @@ const gSchedule = svg.append("g")
 // Axes
 gSchedule.append("rect")
   .attr("width", scheduleChartW).attr("height", scheduleChartH)
-  .attr("fill", "#1a1d2e")
-  .attr("stroke", "#4a5568")
+  .attr("fill", "#f7fafc")
+  .attr("stroke", "#cbd5e0")
   .attr("rx", 4);
 
 const scX = d3.scaleLinear().domain([0, TOTAL_STEPS]).range([20, scheduleChartW - 10]);
@@ -708,8 +708,8 @@ const gMath = svg.append("g").attr("transform", `translate(${mathX}, ${mathY + 1
 gMath.append("rect")
   .attr("width", scheduleChartW).attr("height", 90)
   .attr("rx", 6)
-  .attr("fill", "#1e2535")
-  .attr("stroke", "#4a5568");
+  .attr("fill", "#f7fafc")
+  .attr("stroke", "#cbd5e0");
 
 const mathLines = [
   gMath.append("text").attr("x", 12).attr("y", 22)
@@ -922,7 +922,7 @@ guidanceGroups.each(function(s, i) {
     .attr("x", 0).attr("y", guidanceSize + 34)
     .attr("width", guidanceSize).attr("height", 4)
     .attr("rx", 2)
-    .attr("fill", "#2d3748");
+    .attr("fill", "#e2e8f0");
   // Fill bar
   g.append("rect")
     .attr("x", 0).attr("y", guidanceSize + 34)
@@ -1017,10 +1017,10 @@ const gGuideEq = gGuidance.append("g")
 gGuideEq.append("rect")
   .attr("width", guidePrevSize + 20).attr("height", 52)
   .attr("x", -10).attr("rx", 6)
-  .attr("fill", "#25202e")
+  .attr("fill", "#f7fafc")
   .attr("stroke", "#d6bcfa")
   .attr("stroke-width", 1)
-  .attr("opacity", 0.6);
+  .attr("opacity", 0.8);
 
 gGuideEq.append("text")
   .attr("x", guidePrevSize / 2).attr("y", 18)
