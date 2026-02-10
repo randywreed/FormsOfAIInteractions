@@ -8,21 +8,21 @@
       font-family: system-ui, -apple-system, sans-serif;
       margin: 0;
       padding: 20px;
-      background: #0f1117;
-      color: #e2e8f0;
+      background: #fafafa;
+      color: #1a202c;
     }
     #viz {
-      background: #1a1d2e;
+      background: white;
       border-radius: 12px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
       padding: 10px;
       max-width: 1200px;
       margin: 0 auto;
     }
     button {
-      background: #2d3748;
-      color: #e2e8f0;
-      border: 1px solid #4a5568;
+      background: #edf2f7;
+      color: #1a202c;
+      border: 1px solid #cbd5e0;
       border-radius: 6px;
       padding: 8px 18px;
       cursor: pointer;
@@ -30,7 +30,7 @@
       font-family: system-ui;
       transition: all 0.15s;
     }
-    button:hover { background: #4a5568; }
+    button:hover { background: #e2e8f0; }
     button.active { background: #3182ce; border-color: #63b3ed; }
     #controls {
       display: flex;
@@ -41,7 +41,7 @@
     }
     #controls label {
       font-size: 12px;
-      color: #a0aec0;
+      color: #4a5568;
     }
     input[type=range] {
       -webkit-appearance: none;
@@ -49,7 +49,7 @@
       width: 130px;
       height: 6px;
       border-radius: 3px;
-      background: #4a5568;
+      background: #cbd5e0;
       outline: none;
     }
     input[type=range]::-webkit-slider-thumb {
@@ -63,8 +63,8 @@
       font-size: 12px;
       padding: 4px 10px;
       border-radius: 4px;
-      background: #2d3748;
-      border: 1px solid #4a5568;
+      background: #edf2f7;
+      border: 1px solid #cbd5e0;
     }
     .pulse { animation: pulse 1.2s ease-in-out infinite; }
     @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
@@ -293,12 +293,12 @@ defs.append("marker").attr("id","arrowOrange")
 // ─── Title ───────────────────────────────────────────────────────────────
 svg.append("text")
   .attr("x", 40).attr("y", 30)
-  .style("font","bold 22px system-ui").style("fill","#e2e8f0")
+  .style("font","bold 22px system-ui").style("fill","#1a202c")
   .text("Image Diffusion Models: How They Work");
 
 svg.append("text")
   .attr("x", 40).attr("y", 52)
-  .style("font","13px system-ui").style("fill","#718096")
+  .style("font","13px system-ui").style("fill","#4a5568")
   .text("Watch noise get added to an image (forward process) then removed (reverse process) — the core of Stable Diffusion, DALL·E, etc.");
 
 // ─── Layout constants ────────────────────────────────────────────────────
@@ -334,13 +334,13 @@ gImage.append("rect")
 svg.append("text")
   .attr("x", imgOriginX + imgSize / 2).attr("y", imgOriginY - 8)
   .attr("text-anchor", "middle")
-  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .style("font","bold 13px system-ui").style("fill","#2d3748")
   .text("Current Image State");
 
 const imgLabel = svg.append("text")
   .attr("x", imgOriginX + imgSize / 2).attr("y", imgOriginY + imgSize + 20)
   .attr("text-anchor", "middle")
-  .style("font","12px system-ui").style("fill","#a0aec0");
+  .style("font","12px system-ui").style("fill","#2d3748");
 
 // Pixel cells
 const pixelData = [];
@@ -384,7 +384,7 @@ const thumbSteps = Array.from({length: thumbCount}, (_, i) =>
 
 svg.append("text")
   .attr("x", filmstripX).attr("y", filmstripY - 10)
-  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .style("font","bold 13px system-ui").style("fill","#2d3748")
   .text("Diffusion Timeline — Clean Image → Pure Noise");
 
 const gFilmstrip = svg.append("g")
@@ -453,7 +453,7 @@ thumbGroups.each(function(t) {
 thumbGroups.append("text")
   .attr("x", thumbSize / 2).attr("y", thumbSize + 12)
   .attr("text-anchor", "middle")
-  .style("font","9px system-ui").style("fill","#718096")
+  .style("font","9px system-ui").style("fill","#4a5568")
   .text(t => `t=${t}`);
 
 // Highlight indicator for current step
@@ -481,7 +481,7 @@ function updateFilmstripHighlight(t) {
 // ─── Draw: Noise Schedule Chart ──────────────────────────────────────────
 svg.append("text")
   .attr("x", scheduleChartX).attr("y", scheduleChartY - 10)
-  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .style("font","bold 13px system-ui").style("fill","#2d3748")
   .text("Noise Schedule (Cosine)");
 
 const gSchedule = svg.append("g")
@@ -539,11 +539,11 @@ gSchedule.append("text").attr("x", scheduleChartW - 92).attr("y", 38)
 
 // Labels
 gSchedule.append("text").attr("x", scheduleChartW / 2).attr("y", scheduleChartH + 2)
-  .attr("text-anchor", "middle").style("font","10px system-ui").style("fill","#718096").text("Timestep t →");
+  .attr("text-anchor", "middle").style("font","10px system-ui").style("fill","#4a5568").text("Timestep t →");
 gSchedule.append("text").attr("x", 8).attr("y", 14)
-  .style("font","9px system-ui").style("fill","#718096").text("1.0");
+  .style("font","9px system-ui").style("fill","#4a5568").text("1.0");
 gSchedule.append("text").attr("x", 12).attr("y", scheduleChartH - 8)
-  .style("font","9px system-ui").style("fill","#718096").text("0");
+  .style("font","9px system-ui").style("fill","#4a5568").text("0");
 
 // Current step indicator on chart
 const stepIndicator = gSchedule.append("line")
@@ -573,7 +573,7 @@ const diagH = H - diagramY - 30;
 
 gDiagram.append("text")
   .attr("x", 0).attr("y", 0)
-  .style("font","bold 14px system-ui").style("fill","#e2e8f0")
+  .style("font","bold 14px system-ui").style("fill","#1a202c")
   .text("How Diffusion Works");
 
 // ── The big picture boxes ──
@@ -648,7 +648,7 @@ boxData.forEach(box => {
   box.lines.forEach((line, i) => {
     g.append("text")
       .attr("x", 16).attr("y", 42 + i * 17)
-      .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#cbd5e0")
+      .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#4a5568")
       .text(line);
   });
 });
@@ -700,7 +700,7 @@ const mathY = scheduleChartY + scheduleChartH + 30;
 
 svg.append("text")
   .attr("x", mathX).attr("y", mathY)
-  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .style("font","bold 13px system-ui").style("fill","#2d3748")
   .text("What's Happening Right Now");
 
 const gMath = svg.append("g").attr("transform", `translate(${mathX}, ${mathY + 15})`);
@@ -713,13 +713,13 @@ gMath.append("rect")
 
 const mathLines = [
   gMath.append("text").attr("x", 12).attr("y", 22)
-    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#e2e8f0"),
+    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#1a202c"),
   gMath.append("text").attr("x", 12).attr("y", 42)
-    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#cbd5e0"),
+    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#4a5568"),
   gMath.append("text").attr("x", 12).attr("y", 62)
-    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#cbd5e0"),
+    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#4a5568"),
   gMath.append("text").attr("x", 12).attr("y", 82)
-    .style("font","11px system-ui").style("fill","#718096"),
+    .style("font","11px system-ui").style("fill","#4a5568"),
 ];
 
 function updateMathDisplay(t) {
@@ -775,7 +775,7 @@ svg.append("text")
 
 svg.append("text")
   .attr("x", guidanceX).attr("y", guidanceY + 18)
-  .style("font","12px system-ui").style("fill","#718096")
+  .style("font","12px system-ui").style("fill","#4a5568")
   .text("Same noise, same prompt — only the guidance scale s changes. Higher s → image follows the text prompt more closely.");
 
 const gGuidance = svg.append("g")
@@ -934,7 +934,7 @@ guidanceGroups.each(function(s, i) {
 // Quality label
 gGuidance.append("text")
   .attr("x", 0).attr("y", guidanceSize + 50)
-  .style("font","9px system-ui").style("fill","#718096")
+  .style("font","9px system-ui").style("fill","#4a5568")
   .text("Quality →");
 
 // Interactive guidance preview (right side, shows a larger image at the currently selected guidance scale)
@@ -985,7 +985,7 @@ const guidePrevLabel = gGuidePrev.append("text")
 const guidePrevDesc = gGuidePrev.append("text")
   .attr("x", guidePrevSize / 2).attr("y", guidePrevSize + 34)
   .attr("text-anchor", "middle")
-  .style("font","11px system-ui").style("fill","#718096");
+  .style("font","11px system-ui").style("fill","#4a5568");
 
 function getGuidanceDescription(s) {
   if (s === 0) return "No conditioning — pure imagination";
@@ -1031,7 +1031,7 @@ gGuideEq.append("text")
 gGuideEq.append("text")
   .attr("x", guidePrevSize / 2).attr("y", 38)
   .attr("text-anchor", "middle")
-  .style("font","10px system-ui").style("fill","#a0aec0")
+  .style("font","10px system-ui").style("fill","#2d3748")
   .text("↑ Drag the slider to change s");
 
 // Initial render of guidance demo
