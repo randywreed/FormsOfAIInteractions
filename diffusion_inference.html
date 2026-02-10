@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Diffusion Model Inference Pipeline</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #0f1117;
+      color: #e2e8f0;
+    }
+    #viz {
+      background: #1a1d2e;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      padding: 10px;
+      max-width: 1300px;
+      margin: 0 auto;
+    }
+    button {
+      background: #2d3748;
+      color: #e2e8f0;
+      border: 1px solid #4a5568;
+      border-radius: 6px;
+      padding: 8px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: system-ui;
+      transition: all 0.15s;
+    }
+    button:hover { background: #4a5568; }
+    button.active { background: #3182ce; border-color: #63b3ed; }
+    #controls {
+      display: flex;
+      gap: 10px;
+      padding: 10px 14px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #controls label {
+      font-size: 12px;
+      color: #a0aec0;
+    }
+    select {
+      background: #2d3748;
+      color: #e2e8f0;
+      border: 1px solid #4a5568;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-family: system-ui;
+      cursor: pointer;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100px;
+      height: 6px;
+      border-radius: 3px;
+      background: #4a5568;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #63b3ed;
+      cursor: pointer;
+    }
+    .info-badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #2d3748;
+      border: 1px solid #4a5568;
+    }
+    @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+    .pulse { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes flowDash { to { stroke-dashoffset: -20; } }
+  </style>
+</head>
+<body>
+<div id="viz">
+  <div id="controls">
+    <button id="btn-run" class="active">▶ Run Inference</button>
+    <button id="btn-step">⏭ Step</button>
+    <button id="btn-pause">⏸ Pause</button>
+    <button id="btn-reset">↺ Reset</button>
+    <label>Scheduler
+      <select id="scheduler-select">
+        <option value="ddpm">DDPM (50 steps)</option>
+        <option value="ddim" selected>DDIM (20 steps)</option>
+        <option value="euler">Euler (20 steps)</option>
+        <option value="dpm">DPM++ 2M (15 steps)</option>
+      </select>
+    </label>
+    <label>Speed <input id="speed-slider" type="range" min="1" max="10" value="4"></label>
+    <label>Guidance <input id="cfg-slider" type="range" min="1" max="25" value="7" step="0.5"></label>
+    <span class="info-badge" id="cfg-badge">CFG = 7.0</span>
+    <span class="info-badge" id="stage-badge">Ready</span>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+// ─── Configuration ───────────────────────────────────────────────────────
+const W = 1280, H = 1200;
+const SCHEDULERS = {
+  ddpm: { name: "DDPM", steps: 50, desc: "Original denoising diffusion. Slow but high quality." },
+  ddim: { name: "DDIM", steps: 20, desc: "Deterministic sampler. Fewer steps, good quality." },
+  euler: { name: "Euler", steps: 20, desc: "Continuous-time ODE solver. Fast and popular." },
+  dpm:  { name: "DPM++ 2M", steps: 15, desc: "Multi-step solver. Very fast convergence." },
+};
+
+// ─── Pipeline Stages ─────────────────────────────────────────────────────
+const STAGES = [
+  { id: "prompt",   label: "Text Prompt",      color: "#e2e8f0", icon: "✏️",  x: 30,   y: 62,  w: 160, h: 80 },
+  { id: "tokenize", label: "Tokenizer",        color: "#f6ad55", icon: "✂️",  x: 280,  y: 62,  w: 130, h: 80 },
+  { id: "clip",     label: "Text Encoder\n(CLIP / T5)", color: "#63b3ed", icon: "🧠", x: 510, y: 42, w: 155, h: 100 },
+  { id: "noise",    label: "Sample Noise\nzT ~ N(0,I)",  color: "#f687b3", icon: "🎲", x: 30, y: 240, w: 140, h: 60 },
+  { id: "unet",     label: "U-Net\n+ Scheduler", color: "#68d391", icon: "⚙️", x: 220, y: 220, w: 280, h: 100 },
+  { id: "latent",   label: "Clean Latent z₀",  color: "#d6bcfa", icon: "💎",  x: 590,  y: 240, w: 130, h: 60 },
+  { id: "vae",      label: "VAE Decoder",      color: "#fc8181", icon: "🖼️",  x: 830,  y: 240, w: 130, h: 60 },
+  { id: "output",   label: "Output Image",     color: "#48bb78", icon: "✨",  x: 1060, y: 220, w: 130, h: 100 },
+];
+
+// Connection arrows between stages
+const CONNECTIONS = [
+  { from: "prompt",   to: "tokenize", label: "raw text" },
+  { from: "tokenize", to: "clip",     label: "token IDs" },
+  { from: "clip",     to: "unet",     label: "embeddings", type: "cross-attn" },
+  { from: "noise",    to: "unet",     label: "zT" },
+  { from: "unet",     to: "latent",   label: "z₀" },
+  { from: "latent",   to: "vae",      label: "latent" },
+  { from: "vae",      to: "output",   label: "pixels" },
+];
+
+// ─── Simple pixel images for output ──────────────────────────────────────
+const IMG_SIZE = 16;
+const PIXEL_SIZE_SMALL = 5;
+
+function makeHeart() {
+  const img = Array.from({length: IMG_SIZE}, () => Array.from({length: IMG_SIZE}, () => [25,25,50]));
+  const p = [
+    "................","..xxx....xxx....","..xxxxx..xxxxx..","xxxxxxxxxxxxxxx.",
+    "xxxxxxxxxxxxxxx.","xxxxxxxxxxxxxxx.","xxxxxxxxxxxxxxx.",".xxxxxxxxxxxxx..",
+    "..xxxxxxxxxxx...","...xxxxxxxxx....","....xxxxxxx.....","......xxx.......",
+    ".......x........","................","................","................",
+  ];
+  for (let r=0;r<16;r++) for (let c=0;c<16;c++) if (p[r][c]==='x') img[r][c]=[220,50,80];
+  return img;
+}
+function makeStar() {
+  const img = Array.from({length: IMG_SIZE}, () => Array.from({length: IMG_SIZE}, () => [20,20,55]));
+  const p = [
+    "................",".......xx.......","......xxxx......","......xxxx......",
+    "..xxxxxxxxxxxx..","...xxxxxxxxxx...",".....xxxxxx.....","....xxxxxxxx....",
+    "...xx......xx...","..xx........xx..","..x..........x..","................",
+    "................","................","................","................",
+  ];
+  for (let r=0;r<16;r++) for (let c=0;c<16;c++) if (p[r][c]==='x') img[r][c]=[255,210,50];
+  return img;
+}
+function makeCat() {
+  const img = Array.from({length: IMG_SIZE}, () => Array.from({length: IMG_SIZE}, () => [20,22,45]));
+  const p = [
+    "..x..........x..","..xx........xx..",".xxxx......xxxx.",".xxxxxxxxxxxxx..",
+    ".xxxxxxxxxxxxx..","..xx..xxxx..xx..","..xx..xxxx..xx..",".xxxxxxxxxxxxxx.",
+    ".xxxx.xxxx.xxxx.",".xxxxxxxxxxxxx..",".xxxxxxxxxxxxx..","..xxxxxxxxxxx...",
+    "....xxxxxxx.....","................","................","................",
+  ];
+  for (let r=0;r<16;r++) for (let c=0;c<16;c++) if (p[r][c]==='x') img[r][c]=[200,160,100];
+  return img;
+}
+
+const PROMPTS = [
+  { text: "a red heart on dark background", image: makeHeart() },
+  { text: "a golden star, simple icon style", image: makeStar() },
+  { text: "a cute cat face, pixel art", image: makeCat() },
+];
+
+// ─── State ───────────────────────────────────────────────────────────────
+let currentPromptIdx = 0;
+let currentScheduler = 'ddim';
+let cfgScale = 7.0;
+let speed = 4;
+let running = false;
+let paused = false;
+let tickCounter = 0;
+
+// Pipeline state
+let pipelineStage = -1;        // -1 = idle, 0..7 = active stage index
+let denoiseStep = 0;           // within the U-Net loop
+let totalDenoiseSteps = 20;
+let stageProgress = 0;         // 0..1 progress within current stage
+let stageTicksNeeded = 0;
+let stageTicks = 0;
+
+// Noise data for denoising animation
+let latentNoise = [];
+function regenerateLatentNoise() {
+  latentNoise = Array.from({length: IMG_SIZE}, () =>
+    Array.from({length: IMG_SIZE}, () => [
+      Math.random()*255, Math.random()*255, Math.random()*255
+    ])
+  );
+}
+regenerateLatentNoise();
+
+function noiseLevel(step, total) {
+  const t = step / total;
+  const s = 0.008;
+  const f = Math.cos(((t + s) / (1 + s)) * Math.PI / 2);
+  const f0 = Math.cos((s / (1 + s)) * Math.PI / 2);
+  return 1 - (f * f) / (f0 * f0);
+}
+
+function getNoisyPixel(r, c, step, total) {
+  const alpha = noiseLevel(step, total);
+  const clean = PROMPTS[currentPromptIdx].image[r][c];
+  const noise = latentNoise[r][c];
+  return [
+    Math.round(clean[0]*(1-alpha) + noise[0]*alpha),
+    Math.round(clean[1]*(1-alpha) + noise[1]*alpha),
+    Math.round(clean[2]*(1-alpha) + noise[2]*alpha),
+  ];
+}
+
+// ─── SVG Setup ───────────────────────────────────────────────────────────
+const svg = d3.select("#viz").append("svg")
+  .attr("viewBox", `0 0 ${W} ${H}`)
+  .style("display", "block");
+
+const defs = svg.append("defs");
+
+// Glow filter
+const filt = defs.append("filter").attr("id","glow");
+filt.append("feGaussianBlur").attr("stdDeviation","3").attr("result","blur");
+filt.append("feMerge").selectAll("feMergeNode").data(["blur","SourceGraphic"])
+  .join("feMergeNode").attr("in", d=>d);
+
+// Soft glow for active stage
+const filt2 = defs.append("filter").attr("id","activeGlow");
+filt2.append("feGaussianBlur").attr("stdDeviation","6").attr("result","blur");
+filt2.append("feMerge").selectAll("feMergeNode").data(["blur","SourceGraphic"])
+  .join("feMergeNode").attr("in", d=>d);
+
+// Arrow markers in different colors
+["#e2e8f0","#f6ad55","#63b3ed","#68d391","#d6bcfa","#fc8181","#f687b3","#48bb78"].forEach((color, i) => {
+  defs.append("marker").attr("id", `arrow${i}`)
+    .attr("markerWidth",10).attr("markerHeight",8)
+    .attr("refX",9).attr("refY",4).attr("orient","auto")
+    .append("polygon").attr("points","0 0, 10 4, 0 8").attr("fill", color);
+});
+
+// ─── Title ───────────────────────────────────────────────────────────────
+svg.append("text")
+  .attr("x", 30).attr("y", 28)
+  .style("font","bold 22px system-ui").style("fill","#e2e8f0")
+  .text("Diffusion Inference Pipeline — Step by Step");
+svg.append("text")
+  .attr("x", 30).attr("y", 48)
+  .style("font","13px system-ui").style("fill","#718096")
+  .text("Watch a text prompt flow through every stage of Stable Diffusion to produce an image.");
+
+// ─── Pipeline Layout ─────────────────────────────────────────────────────
+// Scale everything into the top portion of the SVG
+const pipeY = 70;
+const pipeScale = 1;
+const gPipeline = svg.append("g").attr("transform", `translate(10, ${pipeY}) scale(${pipeScale})`);
+
+// Draw connections first (behind boxes)
+const gConns = gPipeline.append("g");
+
+function stageById(id) { return STAGES.find(s => s.id === id); }
+
+CONNECTIONS.forEach(conn => {
+  const from = stageById(conn.from);
+  const to = stageById(conn.to);
+
+  let x1, y1, x2, y2;
+  if (conn.type === "cross-attn") {
+    // CLIP → U-Net: vertical arrow down
+    x1 = from.x + from.w / 2;
+    y1 = from.y + from.h;
+    x2 = to.x + to.w / 2 - 40;
+    y2 = to.y;
+  } else {
+    x1 = from.x + from.w;
+    y1 = from.y + from.h / 2;
+    x2 = to.x;
+    y2 = to.y + to.h / 2;
+  }
+
+  const color = from.color;
+  const markerIdx = STAGES.indexOf(from) % 8;
+
+  // Draw path
+  if (conn.type === "cross-attn") {
+    const midY = (y1 + y2) / 2;
+    gConns.append("path")
+      .attr("d", `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`)
+      .attr("fill", "none")
+      .attr("stroke", color)
+      .attr("stroke-width", 2)
+      .attr("stroke-dasharray", "6,4")
+      .attr("opacity", 0.5)
+      .attr("marker-end", `url(#arrow${markerIdx})`);
+    // Label
+    gConns.append("text")
+      .attr("x", (x1+x2)/2 + 15).attr("y", (y1+y2)/2)
+      .style("font","bold 10px system-ui").style("fill", color)
+      .attr("opacity", 0.7)
+      .text("cross-attention ↓");
+  } else {
+    gConns.append("line")
+      .attr("x1", x1).attr("y1", y1)
+      .attr("x2", x2).attr("y2", y2)
+      .attr("stroke", color)
+      .attr("stroke-width", 2)
+      .attr("opacity", 0.4)
+      .attr("marker-end", `url(#arrow${markerIdx})`);
+    // Label on connection
+    const mx = (x1+x2)/2, my = (y1+y2)/2 - 10;
+    // Background pill for readability
+    const labelText = conn.label;
+    const lblWidth = labelText.length * 8 + 12;
+    gConns.append("rect")
+      .attr("x", mx - lblWidth/2).attr("y", my - 11)
+      .attr("width", lblWidth).attr("height", 16)
+      .attr("rx", 4)
+      .attr("fill", "#1a1d2e")
+      .attr("stroke", color)
+      .attr("stroke-width", 0.8)
+      .attr("opacity", 0.9);
+    gConns.append("text")
+      .attr("x", mx).attr("y", my)
+      .attr("text-anchor", "middle")
+      .style("font","bold 10px system-ui").style("fill", color)
+      .text(labelText);
+  }
+});
+
+// U-Net loop arrow (self-loop)
+const unet = stageById("unet");
+gConns.append("path")
+  .attr("d", `M${unet.x + unet.w - 30},${unet.y + unet.h}
+    C${unet.x + unet.w - 30},${unet.y + unet.h + 40}
+     ${unet.x + 30},${unet.y + unet.h + 40}
+     ${unet.x + 30},${unet.y + unet.h}`)
+  .attr("fill", "none")
+  .attr("stroke", "#68d391")
+  .attr("stroke-width", 2)
+  .attr("stroke-dasharray", "5,3")
+  .attr("opacity", 0.6)
+  .attr("marker-end", "url(#arrow3)");
+gConns.append("text")
+  .attr("x", unet.x + unet.w / 2).attr("y", unet.y + unet.h + 46)
+  .attr("text-anchor", "middle")
+  .style("font","bold 10px system-ui").style("fill","#68d391")
+  .attr("opacity", 0.8)
+  .text("repeat for each timestep");
+
+// Draw stage boxes
+const gStages = gPipeline.append("g");
+
+STAGES.forEach((stage, i) => {
+  const g = gStages.append("g")
+    .attr("class", `stage stage-${stage.id}`)
+    .attr("transform", `translate(${stage.x}, ${stage.y})`);
+
+  // Background
+  g.append("rect")
+    .attr("class", "stage-bg")
+    .attr("width", stage.w).attr("height", stage.h)
+    .attr("rx", 10)
+    .attr("fill", "#1a1d2e")
+    .attr("stroke", stage.color)
+    .attr("stroke-width", 1.5)
+    .attr("opacity", 0.85);
+
+  // Icon + label
+  const lines = stage.label.split("\n");
+  g.append("text")
+    .attr("x", 10).attr("y", 22)
+    .style("font","14px system-ui")
+    .text(stage.icon);
+
+  lines.forEach((line, li) => {
+    g.append("text")
+      .attr("x", 30).attr("y", 20 + li * 15)
+      .style("font", li === 0 ? "bold 12px system-ui" : "11px system-ui")
+      .style("fill", li === 0 ? stage.color : "#a0aec0")
+      .text(line);
+  });
+
+  // Add prompt text inside the prompt box using foreignObject for wrapping
+  if (stage.id === "prompt") {
+    g.append("foreignObject")
+      .attr("class", "prompt-inside-fo")
+      .attr("x", 6).attr("y", 35)
+      .attr("width", stage.w - 12).attr("height", stage.h - 38)
+      .append("xhtml:div")
+      .attr("class", "prompt-inside-text")
+      .style("font", "italic 11px system-ui")
+      .style("color", "#f6e05e")
+      .style("line-height", "14px")
+      .style("overflow", "hidden")
+      .style("word-wrap", "break-word")
+      .text("");
+  }
+});
+
+// ─── Active stage highlight ──────────────────────────────────────────────
+const stageHighlightRect = gPipeline.append("rect")
+  .attr("rx", 12)
+  .attr("fill", "none")
+  .attr("stroke", "#e2e8f0")
+  .attr("stroke-width", 3)
+  .attr("filter", "url(#activeGlow)")
+  .style("opacity", 0);
+
+function highlightStage(idx) {
+  if (idx < 0 || idx >= STAGES.length) {
+    stageHighlightRect.style("opacity", 0);
+    return;
+  }
+  const s = STAGES[idx];
+  stageHighlightRect
+    .attr("x", s.x - 4).attr("y", s.y - 4)
+    .attr("width", s.w + 8).attr("height", s.h + 8)
+    .attr("stroke", s.color)
+    .style("opacity", 1);
+}
+
+// ─── Data particle (animated dot that flows through pipeline) ────────────
+const dataParticle = gPipeline.append("circle")
+  .attr("r", 6)
+  .attr("fill", "#e2e8f0")
+  .attr("filter", "url(#glow)")
+  .style("opacity", 0);
+
+// ─── Detail Panels (below pipeline) ──────────────────────────────────────
+const detailY = 660;
+
+// ── 1. Tokenizer Detail Panel ────────────────────────────────────────────
+const gTokenDetail = svg.append("g")
+  .attr("transform", `translate(30, ${detailY})`)
+  .style("opacity", 0);
+
+gTokenDetail.append("text")
+  .attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#f6ad55")
+  .text("Tokenizer Output");
+
+const gTokens = gTokenDetail.append("g").attr("transform", "translate(0, 12)");
+
+function showTokens(promptText) {
+  gTokens.selectAll("*").remove();
+  // Simulate BPE tokenization
+  const words = promptText.split(/\s+/);
+  const tokens = [];
+  words.forEach(w => {
+    if (w.length <= 3) tokens.push(w);
+    else {
+      // Fake BPE: split longer words
+      tokens.push(w.slice(0, Math.ceil(w.length/2)));
+      tokens.push(w.slice(Math.ceil(w.length/2)));
+    }
+  });
+  // Add special tokens
+  const allTokens = ["<|startoftext|>", ...tokens, "<|endoftext|>"];
+
+  allTokens.forEach((tok, i) => {
+    const isSpecial = tok.startsWith("<|");
+    const tokW = Math.max(tok.length * 7.5 + 12, 30);
+    const xOff = allTokens.slice(0, i).reduce((acc, t) => {
+      return acc + Math.max(t.length * 7.5 + 12, 30) + 4;
+    }, 0);
+
+    if (xOff > W - 80) return; // don't overflow
+
+    const g = gTokens.append("g").attr("transform", `translate(${xOff}, 0)`);
+
+    g.append("rect")
+      .attr("width", tokW).attr("height", 22)
+      .attr("rx", 4)
+      .attr("fill", isSpecial ? "#2d3748" : "#3d2e1a")
+      .attr("stroke", isSpecial ? "#4a5568" : "#f6ad55")
+      .attr("stroke-width", 1);
+
+    g.append("text")
+      .attr("x", tokW/2).attr("y", 15)
+      .attr("text-anchor", "middle")
+      .style("font","10px 'SF Mono', Consolas, monospace")
+      .style("fill", isSpecial ? "#718096" : "#f6ad55")
+      .text(tok);
+
+    // Token ID
+    g.append("text")
+      .attr("x", tokW/2).attr("y", 35)
+      .attr("text-anchor", "middle")
+      .style("font","9px system-ui").style("fill","#718096")
+      .text(isSpecial ? (i === 0 ? "49406" : "49407") : Math.floor(Math.random()*40000 + 1000));
+  });
+}
+
+// ── 2. CLIP Embedding Detail Panel ───────────────────────────────────────
+const gClipDetail = svg.append("g")
+  .attr("transform", `translate(30, ${detailY})`)
+  .style("opacity", 0);
+
+gClipDetail.append("text")
+  .attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#63b3ed")
+  .text("Text Encoder Output — Embedding Vectors (768-dim per token)");
+
+const gEmbedViz = gClipDetail.append("g").attr("transform", "translate(0, 15)");
+
+function showEmbeddings() {
+  gEmbedViz.selectAll("*").remove();
+  const numTokens = 8;
+  const embedDim = 60; // show 60 of 768 dims
+  const cellW = 10, cellH = 16;
+
+  // Matrix labels
+  gEmbedViz.append("text").attr("x", 0).attr("y", -3)
+    .style("font","10px system-ui").style("fill","#718096")
+    .text("token →");
+  gEmbedViz.append("text").attr("x", -5).attr("y", cellH * 3)
+    .attr("text-anchor", "end")
+    .style("font","10px system-ui").style("fill","#718096")
+    .attr("transform", `rotate(-90, -5, ${cellH*3})`)
+    .text("embedding dim →");
+
+  for (let t = 0; t < numTokens; t++) {
+    for (let d = 0; d < embedDim; d++) {
+      const val = Math.random() * 2 - 1; // -1 to 1
+      const color = val > 0
+        ? d3.interpolateBlues(Math.abs(val))
+        : d3.interpolateReds(Math.abs(val));
+      gEmbedViz.append("rect")
+        .attr("x", t * (cellW + 1) + 40)
+        .attr("y", d * 3)
+        .attr("width", cellW)
+        .attr("height", 2.5)
+        .attr("fill", color)
+        .attr("opacity", 0.9);
+    }
+    // Token index label
+    gEmbedViz.append("text")
+      .attr("x", t * (cellW + 1) + 40 + cellW/2)
+      .attr("y", embedDim * 3 + 12)
+      .attr("text-anchor", "middle")
+      .style("font","9px system-ui").style("fill","#718096")
+      .text(`t${t}`);
+  }
+
+  // Info text
+  gEmbedViz.append("text")
+    .attr("x", numTokens * (cellW+1) + 60).attr("y", 20)
+    .style("font","12px system-ui").style("fill","#a0aec0")
+    .text("Each column = one token's 768-dim embedding");
+  gEmbedViz.append("text")
+    .attr("x", numTokens * (cellW+1) + 60).attr("y", 38)
+    .style("font","12px system-ui").style("fill","#a0aec0")
+    .text("(showing 60 of 768 dimensions)");
+  gEmbedViz.append("text")
+    .attr("x", numTokens * (cellW+1) + 60).attr("y", 60)
+    .style("font","12px system-ui").style("fill","#63b3ed")
+    .text("These vectors tell the U-Net WHAT to generate.");
+  gEmbedViz.append("text")
+    .attr("x", numTokens * (cellW+1) + 60).attr("y", 78)
+    .style("font","12px system-ui").style("fill","#63b3ed")
+    .text("Fed in via cross-attention at each denoising step.");
+}
+
+// ── 3. Denoising Loop Detail Panel ───────────────────────────────────────
+const gDenoiseDetail = svg.append("g")
+  .attr("transform", `translate(30, ${detailY})`)
+  .style("opacity", 0);
+
+gDenoiseDetail.append("text")
+  .attr("class", "denoise-title")
+  .attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#68d391");
+
+// Latent image preview (shows denoising in progress)
+const latentPrevSize = 130;
+const gLatentPrev = gDenoiseDetail.append("g").attr("transform", "translate(0, 15)");
+gLatentPrev.append("rect")
+  .attr("width", latentPrevSize+2).attr("height", latentPrevSize+2)
+  .attr("x",-1).attr("y",-1).attr("rx",6)
+  .attr("fill","none").attr("stroke","#68d391").attr("stroke-width",2);
+gLatentPrev.append("text")
+  .attr("x", latentPrevSize/2).attr("y", latentPrevSize + 16)
+  .attr("text-anchor","middle")
+  .style("font","11px system-ui").style("fill","#a0aec0")
+  .text("Latent Space (64×64→shown as 16×16)");
+
+const latPixSize = latentPrevSize / IMG_SIZE;
+
+function updateLatentPreview(step, total) {
+  gLatentPrev.selectAll(".lat-pixel").remove();
+  for (let r = 0; r < IMG_SIZE; r++) {
+    for (let c = 0; c < IMG_SIZE; c++) {
+      // Reverse: step counts down, so noise = step/total
+      const [rv, gv, bv] = getNoisyPixel(r, c, step, total);
+      gLatentPrev.append("rect")
+        .attr("class", "lat-pixel")
+        .attr("x", c * latPixSize)
+        .attr("y", r * latPixSize)
+        .attr("width", latPixSize)
+        .attr("height", latPixSize)
+        .attr("fill", `rgb(${rv},${gv},${bv})`);
+    }
+  }
+}
+
+// Denoising progress bar
+const denoiseBarX = latentPrevSize + 30;
+const denoiseBarW = 400;
+const gDenoiseBar = gDenoiseDetail.append("g").attr("transform", `translate(${denoiseBarX}, 15)`);
+
+gDenoiseBar.append("text").attr("y", 0)
+  .style("font","bold 12px system-ui").style("fill","#68d391")
+  .text("Denoising Progress");
+
+// Background bar
+gDenoiseBar.append("rect")
+  .attr("y", 8).attr("width", denoiseBarW).attr("height", 18)
+  .attr("rx", 4).attr("fill","#2d3748").attr("stroke","#4a5568");
+
+// Fill bar
+const denoiseBarFill = gDenoiseBar.append("rect")
+  .attr("y", 8).attr("width", 0).attr("height", 18)
+  .attr("rx", 4).attr("fill","#68d391").attr("opacity", 0.8);
+
+const denoiseBarLabel = gDenoiseBar.append("text")
+  .attr("x", denoiseBarW / 2).attr("y", 22)
+  .attr("text-anchor","middle")
+  .style("font","bold 11px system-ui").style("fill","#1a1d2e");
+
+// Step details text
+const denoiseStepTexts = [];
+for (let i = 0; i < 6; i++) {
+  denoiseStepTexts.push(
+    gDenoiseBar.append("text")
+      .attr("y", 50 + i * 18)
+      .style("font","12px 'SF Mono', Consolas, monospace")
+      .style("fill", i === 0 ? "#68d391" : "#cbd5e0")
+  );
+}
+
+// Scheduler comparison mini-chart
+const gSchedCompare = gDenoiseDetail.append("g")
+  .attr("transform", `translate(${denoiseBarX}, 180)`);
+
+gSchedCompare.append("text").attr("y", 0)
+  .style("font","bold 12px system-ui").style("fill","#a0aec0")
+  .text("Scheduler Comparison — Steps to Converge");
+
+const schedBarData = [
+  { name: "DDPM", steps: 50, color: "#718096" },
+  { name: "DDIM", steps: 20, color: "#63b3ed" },
+  { name: "Euler", steps: 20, color: "#f6ad55" },
+  { name: "DPM++ 2M", steps: 15, color: "#68d391" },
+];
+
+const schedBarMax = 50;
+schedBarData.forEach((sb, i) => {
+  const y = 12 + i * 22;
+  gSchedCompare.append("text")
+    .attr("x", 0).attr("y", y + 12)
+    .style("font","11px system-ui")
+    .style("fill", sb.color)
+    .text(sb.name);
+
+  gSchedCompare.append("rect")
+    .attr("x", 80).attr("y", y)
+    .attr("width", (sb.steps / schedBarMax) * 200).attr("height", 16)
+    .attr("rx", 3)
+    .attr("fill", sb.color)
+    .attr("opacity", 0.7);
+
+  gSchedCompare.append("text")
+    .attr("x", 80 + (sb.steps / schedBarMax) * 200 + 6).attr("y", y + 12)
+    .style("font","bold 11px system-ui").style("fill", sb.color)
+    .text(`${sb.steps} steps`);
+});
+
+// Highlight current scheduler
+const schedHighlight = gSchedCompare.append("rect")
+  .attr("x", 76).attr("width", 220).attr("height", 20)
+  .attr("rx", 4)
+  .attr("fill", "none")
+  .attr("stroke", "#e2e8f0")
+  .attr("stroke-width", 2)
+  .attr("stroke-dasharray", "4,3");
+
+function updateSchedulerHighlight() {
+  const idx = schedBarData.findIndex(s => s.name === SCHEDULERS[currentScheduler].name);
+  schedHighlight.attr("y", 12 + idx * 22 - 2);
+}
+
+function updateDenoiseUI(step, total) {
+  const pct = ((total - step) / total) * 100;
+  denoiseBarFill.attr("width", (pct/100) * denoiseBarW);
+  denoiseBarLabel.text(`Step ${total - step} / ${total}  (${pct.toFixed(0)}%)`);
+
+  const noiseAmt = noiseLevel(step, total);
+  const sigAmt = 1 - noiseAmt;
+
+  denoiseStepTexts[0].text(`Scheduler: ${SCHEDULERS[currentScheduler].name}`).style("fill","#68d391");
+  denoiseStepTexts[1].text(`Timestep t = ${step}  →  noise level: ${(noiseAmt*100).toFixed(1)}%`);
+  denoiseStepTexts[2].text(`1. U-Net predicts noise: ε̂ = εθ(zₜ, t, c)`);
+  denoiseStepTexts[3].text(`2. CFG: ε̂ = εuncond + ${cfgScale.toFixed(1)}·(εcond − εuncond)`);
+  denoiseStepTexts[4].text(`3. Scheduler computes zₜ₋₁ from zₜ and ε̂`);
+  denoiseStepTexts[5].text(`Signal strength: ${(sigAmt*100).toFixed(1)}%  |  Remaining noise: ${(noiseAmt*100).toFixed(1)}%`);
+
+  gDenoiseDetail.select(".denoise-title")
+    .text(`U-Net Denoising Loop — Step ${total - step} of ${total}`);
+
+  updateLatentPreview(step, total);
+  updateSchedulerHighlight();
+}
+
+// ── 4. VAE Detail Panel ──────────────────────────────────────────────────
+const gVaeDetail = svg.append("g")
+  .attr("transform", `translate(30, ${detailY})`)
+  .style("opacity", 0);
+
+gVaeDetail.append("text").attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#fc8181")
+  .text("VAE Decoder — Latent Space → Pixel Space");
+
+const gVaeDiagram = gVaeDetail.append("g").attr("transform", "translate(0, 20)");
+
+function showVaeDiagram() {
+  gVaeDiagram.selectAll("*").remove();
+
+  // Latent representation (small)
+  const latSize = 60;
+  const latPxSz = latSize / 8;
+  gVaeDiagram.append("text").attr("x", latSize/2).attr("y", -5)
+    .attr("text-anchor","middle")
+    .style("font","11px system-ui").style("fill","#d6bcfa")
+    .text("Latent z₀ (4×64×64)");
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const val = Math.random();
+      gVaeDiagram.append("rect")
+        .attr("x", c * latPxSz).attr("y", r * latPxSz)
+        .attr("width", latPxSz).attr("height", latPxSz)
+        .attr("fill", d3.interpolatePurples(val))
+        .attr("stroke", "#1a1d2e").attr("stroke-width", 0.3);
+    }
+  }
+
+  // Arrow
+  gVaeDiagram.append("line")
+    .attr("x1", latSize + 10).attr("y1", latSize/2)
+    .attr("x2", latSize + 80).attr("y2", latSize/2)
+    .attr("stroke", "#fc8181").attr("stroke-width", 2)
+    .attr("marker-end", "url(#arrow5)");
+
+  // VAE Decoder box
+  const vaeBoxX = latSize + 90;
+  gVaeDiagram.append("rect")
+    .attr("x", vaeBoxX).attr("y", 0)
+    .attr("width", 120).attr("height", latSize)
+    .attr("rx", 8)
+    .attr("fill", "#2d1a1a").attr("stroke", "#fc8181").attr("stroke-width", 1.5);
+  gVaeDiagram.append("text")
+    .attr("x", vaeBoxX + 60).attr("y", 25)
+    .attr("text-anchor","middle")
+    .style("font","bold 12px system-ui").style("fill","#fc8181")
+    .text("VAE Decoder");
+  gVaeDiagram.append("text")
+    .attr("x", vaeBoxX + 60).attr("y", 42)
+    .attr("text-anchor","middle")
+    .style("font","10px system-ui").style("fill","#a0aec0")
+    .text("Upsamples 8×");
+
+  // Arrow
+  gVaeDiagram.append("line")
+    .attr("x1", vaeBoxX + 125).attr("y1", latSize/2)
+    .attr("x2", vaeBoxX + 190).attr("y2", latSize/2)
+    .attr("stroke", "#fc8181").attr("stroke-width", 2)
+    .attr("marker-end", "url(#arrow5)");
+
+  // Output image (larger)
+  const outX = vaeBoxX + 200;
+  const outSize = 100;
+  const outPxSz = outSize / IMG_SIZE;
+  gVaeDiagram.append("text").attr("x", outX + outSize/2).attr("y", -5)
+    .attr("text-anchor","middle")
+    .style("font","11px system-ui").style("fill","#48bb78")
+    .text("Output (3×512×512)");
+
+  const img = PROMPTS[currentPromptIdx].image;
+  for (let r = 0; r < IMG_SIZE; r++) {
+    for (let c = 0; c < IMG_SIZE; c++) {
+      const [rv,gv,bv] = img[r][c];
+      gVaeDiagram.append("rect")
+        .attr("x", outX + c * outPxSz).attr("y", r * outPxSz)
+        .attr("width", outPxSz).attr("height", outPxSz)
+        .attr("fill", `rgb(${rv},${gv},${bv})`);
+    }
+  }
+
+  // Explanation
+  const infoX = outX + outSize + 30;
+  const infoLines = [
+    "The diffusion process happens entirely in latent space",
+    "(compressed by 8× in each spatial dimension).",
+    "",
+    "Latent:  4 channels × 64 × 64  =  ~16K values",
+    "Pixels:  3 channels × 512 × 512  =  ~786K values",
+    "",
+    "That's a 48× compression! This is why it's called",
+    "\"Latent Diffusion\" — much faster than pixel-space.",
+  ];
+  infoLines.forEach((line, i) => {
+    gVaeDiagram.append("text")
+      .attr("x", infoX).attr("y", 12 + i * 16)
+      .style("font","12px system-ui")
+      .style("fill", line.includes("48×") || line.includes("Latent Diffusion") ? "#fc8181" : "#a0aec0")
+      .text(line);
+  });
+}
+
+// ── 5. Output Detail Panel ───────────────────────────────────────────────
+const gOutputDetail = svg.append("g")
+  .attr("transform", `translate(30, ${detailY})`)
+  .style("opacity", 0);
+
+gOutputDetail.append("text").attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#48bb78")
+  .text("✨ Generation Complete!");
+
+function showOutputPanel() {
+  gOutputDetail.selectAll(".out-content").remove();
+
+  const g = gOutputDetail.append("g").attr("class","out-content")
+    .attr("transform","translate(0, 20)");
+
+  // Large output image
+  const outSize = 140;
+  const outPxSz = outSize / IMG_SIZE;
+  const img = PROMPTS[currentPromptIdx].image;
+
+  g.append("rect")
+    .attr("width", outSize+4).attr("height", outSize+4)
+    .attr("x",-2).attr("y",-2).attr("rx",8)
+    .attr("fill","none").attr("stroke","#48bb78").attr("stroke-width",2)
+    .attr("filter","url(#glow)");
+
+  for (let r = 0; r < IMG_SIZE; r++) {
+    for (let c = 0; c < IMG_SIZE; c++) {
+      const [rv,gv,bv] = img[r][c];
+      g.append("rect")
+        .attr("x", c * outPxSz).attr("y", r * outPxSz)
+        .attr("width", outPxSz).attr("height", outPxSz)
+        .attr("fill", `rgb(${rv},${gv},${bv})`);
+    }
+  }
+
+  // Info
+  const infoX = outSize + 30;
+  const lines = [
+    { text: `Prompt:  "${PROMPTS[currentPromptIdx].text}"`, color: "#e2e8f0" },
+    { text: `Scheduler:  ${SCHEDULERS[currentScheduler].name}`, color: "#68d391" },
+    { text: `Steps:  ${totalDenoiseSteps}`, color: "#68d391" },
+    { text: `CFG Scale:  ${cfgScale.toFixed(1)}`, color: "#d6bcfa" },
+    { text: "", color: "#718096" },
+    { text: "The full pipeline ran:", color: "#a0aec0" },
+    { text: "1. Tokenized the prompt into subword tokens", color: "#f6ad55" },
+    { text: "2. CLIP encoded tokens into 768-dim embeddings", color: "#63b3ed" },
+    { text: `3. U-Net denoised for ${totalDenoiseSteps} steps with ${SCHEDULERS[currentScheduler].name}`, color: "#68d391" },
+    { text: "4. VAE decoded latent (4×64×64) → pixels (3×512×512)", color: "#fc8181" },
+  ];
+
+  lines.forEach((l, i) => {
+    g.append("text")
+      .attr("x", infoX).attr("y", 14 + i * 18)
+      .style("font", i === 0 ? "bold 13px system-ui" : "12px system-ui")
+      .style("fill", l.color)
+      .text(l.text);
+  });
+}
+
+// ── 6. Prompt/Idle Detail Panel ──────────────────────────────────────────
+const gPromptDetail = svg.append("g")
+  .attr("transform", `translate(30, ${detailY})`)
+  .style("opacity", 1);
+
+gPromptDetail.append("text").attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#e2e8f0")
+  .text("How the Inference Pipeline Works");
+
+const overviewLines = [
+  { text: "The inference pipeline turns a text prompt into an image in 5 stages:", color: "#a0aec0" },
+  { text: "", color: "" },
+  { text: "1. Tokenizer — Splits the prompt into subword tokens (BPE encoding)", color: "#f6ad55" },
+  { text: "2. Text Encoder (CLIP) — Converts tokens into dense embedding vectors (768 dims each)", color: "#63b3ed" },
+  { text: "3. Sample Noise — Start with pure Gaussian noise in latent space", color: "#f687b3" },
+  { text: "4. U-Net + Scheduler — Iteratively denoise the latent, guided by text embeddings (cross-attention)", color: "#68d391" },
+  { text: "5. VAE Decoder — Upscale the clean latent (4×64×64) to pixel space (3×512×512)", color: "#fc8181" },
+  { text: "", color: "" },
+  { text: "Press ▶ Run Inference to watch each stage execute, or ⏭ Step to advance one stage at a time.", color: "#718096" },
+  { text: "Try different schedulers to see how step count changes. Adjust CFG to control prompt adherence.", color: "#718096" },
+];
+
+overviewLines.forEach((l, i) => {
+  gPromptDetail.append("text")
+    .attr("y", 22 + i * 20)
+    .style("font","12px system-ui").style("fill", l.color)
+    .text(l.text);
+});
+
+// ─── Panel management ────────────────────────────────────────────────────
+const allPanels = [gPromptDetail, gTokenDetail, gClipDetail, gDenoiseDetail, gVaeDetail, gOutputDetail];
+
+function showPanel(idx) {
+  // idx: 0=overview, 1=tokenizer, 2=CLIP, 3=denoise, 4=VAE, 5=output
+  allPanels.forEach((p, i) => {
+    p.transition().duration(200).style("opacity", i === idx ? 1 : 0);
+  });
+}
+
+// ─── Pipeline Step Logic ─────────────────────────────────────────────────
+// Maps pipeline stage index to detail panel index
+// stage 0 (prompt) → panel 0 (overview, but briefly)
+// stage 1 (tokenize) → panel 1
+// stage 2 (clip) → panel 2
+// stage 3 (noise) → panel 3 (will quickly transition)
+// stage 4 (unet) → panel 3
+// stage 5 (latent) → panel 4
+// stage 6 (vae) → panel 4
+// stage 7 (output) → panel 5
+
+const stageDurations = [15, 25, 30, 15, -1, 10, 25, 40]; // -1 = dynamic (denoising steps)
+
+function enterStage(idx) {
+  pipelineStage = idx;
+  stageTicks = 0;
+
+  const stage = STAGES[idx];
+  highlightStage(idx);
+  d3.select("#stage-badge").text(stage.label.replace("\n"," "));
+
+  // Position data particle at stage center
+  dataParticle
+    .attr("cx", stage.x + stage.w/2)
+    .attr("cy", stage.y + stage.h/2)
+    .attr("fill", stage.color)
+    .style("opacity", 1);
+
+  if (idx === 0) {
+    // Prompt stage
+    showPanel(0);
+    stageTicksNeeded = stageDurations[0];
+  } else if (idx === 1) {
+    // Tokenizer
+    showTokens(PROMPTS[currentPromptIdx].text);
+    showPanel(1);
+    stageTicksNeeded = stageDurations[1];
+  } else if (idx === 2) {
+    // CLIP
+    showEmbeddings();
+    showPanel(2);
+    stageTicksNeeded = stageDurations[2];
+  } else if (idx === 3) {
+    // Sample noise
+    regenerateLatentNoise();
+    showPanel(3);
+    stageTicksNeeded = stageDurations[3];
+  } else if (idx === 4) {
+    // U-Net denoising loop
+    totalDenoiseSteps = SCHEDULERS[currentScheduler].steps;
+    denoiseStep = totalDenoiseSteps; // start at max noise
+    showPanel(3);
+    updateDenoiseUI(denoiseStep, totalDenoiseSteps);
+    stageTicksNeeded = -1; // controlled by denoiseStep
+  } else if (idx === 5) {
+    // Clean latent
+    showPanel(4);
+    showVaeDiagram();
+    stageTicksNeeded = stageDurations[5];
+  } else if (idx === 6) {
+    // VAE
+    showPanel(4);
+    stageTicksNeeded = stageDurations[6];
+  } else if (idx === 7) {
+    // Output
+    showOutputPanel();
+    showPanel(5);
+    stageTicksNeeded = stageDurations[7];
+  }
+}
+
+function advanceStage() {
+  if (pipelineStage < STAGES.length - 1) {
+    enterStage(pipelineStage + 1);
+  } else {
+    // Done — loop or stop
+    running = false;
+    paused = false;
+    d3.select("#btn-run").text("▶ Run Inference").classed("active", false);
+    d3.select("#stage-badge").text("✨ Complete!");
+  }
+}
+
+// ─── Tick ────────────────────────────────────────────────────────────────
+function tick() {
+  if (!running || paused) return;
+  tickCounter++;
+  const delay = 11 - speed;
+  if (tickCounter % delay !== 0) return;
+
+  if (pipelineStage < 0) {
+    enterStage(0);
+    return;
+  }
+
+  stageTicks++;
+
+  // Pulse data particle
+  const pulseScale = 1 + 0.15 * Math.sin(tickCounter * 0.3);
+  dataParticle.attr("r", 6 * pulseScale);
+
+  if (pipelineStage === 4) {
+    // Denoising loop — special handling
+    if (stageTicks % 3 === 0 && denoiseStep > 0) {
+      denoiseStep--;
+      updateDenoiseUI(denoiseStep, totalDenoiseSteps);
+    }
+    if (denoiseStep <= 0) {
+      advanceStage();
+    }
+  } else {
+    if (stageTicks >= stageTicksNeeded) {
+      advanceStage();
+    }
+  }
+}
+
+// ─── Controls ────────────────────────────────────────────────────────────
+d3.select("#btn-run").on("click", () => {
+  if (running && !paused) return;
+  pipelineStage = -1;
+  running = true;
+  paused = false;
+  d3.select("#btn-run").text("▶ Running...").classed("active", true);
+  d3.select("#btn-pause").text("⏸ Pause");
+  enterStage(0);
+});
+
+d3.select("#btn-step").on("click", () => {
+  running = false;
+  paused = false;
+  d3.select("#btn-run").text("▶ Run Inference").classed("active", false);
+  d3.select("#btn-pause").text("⏸ Pause");
+
+  if (pipelineStage < 0) {
+    enterStage(0);
+  } else if (pipelineStage === 4) {
+    // In denoising — advance a few steps
+    denoiseStep = Math.max(0, denoiseStep - Math.ceil(totalDenoiseSteps / 8));
+    updateDenoiseUI(denoiseStep, totalDenoiseSteps);
+    if (denoiseStep <= 0) advanceStage();
+  } else {
+    advanceStage();
+  }
+});
+
+d3.select("#btn-pause").on("click", () => {
+  if (!running) return;
+  paused = !paused;
+  d3.select("#btn-pause").text(paused ? "▶ Resume" : "⏸ Pause");
+});
+
+d3.select("#btn-reset").on("click", () => {
+  running = false;
+  paused = false;
+  pipelineStage = -1;
+  denoiseStep = 0;
+  stageHighlightRect.style("opacity", 0);
+  dataParticle.style("opacity", 0);
+  d3.select("#btn-run").text("▶ Run Inference").classed("active", false);
+  d3.select("#btn-pause").text("⏸ Pause");
+  d3.select("#stage-badge").text("Ready");
+  showPanel(0);
+});
+
+d3.select("#scheduler-select").on("change", function() {
+  currentScheduler = this.value;
+});
+
+d3.select("#speed-slider").on("input", function() { speed = +this.value; });
+d3.select("#cfg-slider").on("input", function() {
+  cfgScale = +this.value;
+  d3.select("#cfg-badge").text(`CFG = ${cfgScale.toFixed(1)}`);
+});
+
+// ─── Prompt cycling (click on prompt stage box) ──────────────────────────
+gPipeline.select(".stage-prompt").on("click", () => {
+  currentPromptIdx = (currentPromptIdx + 1) % PROMPTS.length;
+});
+
+// Add prompt labels on the pipeline
+const promptLabelG = gPipeline.append("g")
+  .attr("transform", `translate(${STAGES[0].x + 5}, ${STAGES[0].y + STAGES[0].h + 15})`);
+const promptLabel = promptLabelG.append("text")
+  .style("font","10px system-ui").style("fill","#718096")
+  .style("opacity", 0); // hidden — prompt now shown inside the box
+
+function updatePromptLabel() {
+  const txt = PROMPTS[currentPromptIdx].text;
+  promptLabel.text(`"${txt.length > 35 ? txt.slice(0,35) + "…" : txt}"`);
+  // Update the wrapped text inside the prompt box
+  gPipeline.select(".prompt-inside-text")
+    .text(`"${txt}"`);
+}
+updatePromptLabel();
+
+// Prompt selector buttons
+const gPromptBtns = svg.append("g").attr("transform", `translate(30, ${pipeY + 545})`);
+gPromptBtns.append("text").attr("y", 0)
+  .style("font","bold 12px system-ui").style("fill","#718096")
+  .text("Click to choose prompt:");
+
+PROMPTS.forEach((p, i) => {
+  const g = gPromptBtns.append("g")
+    .attr("transform", `translate(${i * 210}, 10)`)
+    .style("cursor","pointer")
+    .on("click", () => {
+      currentPromptIdx = i;
+      updatePromptLabel();
+      regenerateLatentNoise();
+    });
+
+  g.append("rect")
+    .attr("width", 200).attr("height", 24)
+    .attr("rx", 5)
+    .attr("fill", "#2d3748")
+    .attr("stroke", "#4a5568");
+
+  g.append("text")
+    .attr("x", 8).attr("y", 16)
+    .style("font","11px system-ui").style("fill","#e2e8f0")
+    .text(`"${p.text.slice(0,28)}${p.text.length > 28 ? "…" : ""}"`);
+});
+
+// ─── Architecture diagram (right side of pipeline area) ──────────────────
+const archX = 435;
+const archY = pipeY + 395;
+const gArch = svg.append("g").attr("transform", `translate(${archX}, ${archY})`);
+
+gArch.append("text").attr("y", 0)
+  .style("font","bold 13px system-ui").style("fill","#e2e8f0")
+  .text("U-Net Architecture (Simplified)");
+
+// Draw simplified U-Net with skip connections
+const unetLayers = [
+  { label: "Conv↓", w: 50, h: 35, color: "#68d391", x: 0,   y: 25 },
+  { label: "Conv↓", w: 50, h: 35, color: "#68d391", x: 60,  y: 35 },
+  { label: "Conv↓", w: 50, h: 35, color: "#68d391", x: 120, y: 45 },
+  { label: "Mid\nAttn",  w: 50, h: 45, color: "#63b3ed", x: 180, y: 40 },
+  { label: "Conv↑", w: 50, h: 35, color: "#f6ad55", x: 240, y: 45 },
+  { label: "Conv↑", w: 50, h: 35, color: "#f6ad55", x: 300, y: 35 },
+  { label: "Conv↑", w: 50, h: 35, color: "#f6ad55", x: 360, y: 25 },
+];
+
+// "U" shape background
+gArch.append("path")
+  .attr("d", "M0,20 L0,75 Q0,90 15,90 L395,90 Q410,90 410,75 L410,20")
+  .attr("fill", "none")
+  .attr("stroke", "#2d3748")
+  .attr("stroke-width", 2)
+  .attr("stroke-dasharray", "8,4");
+
+unetLayers.forEach((layer, i) => {
+  const g = gArch.append("g").attr("transform", `translate(${layer.x}, ${layer.y})`);
+  g.append("rect")
+    .attr("width", layer.w).attr("height", layer.h)
+    .attr("rx", 5)
+    .attr("fill", "#1e2535")
+    .attr("stroke", layer.color)
+    .attr("stroke-width", 1.5);
+
+  const lines = layer.label.split("\n");
+  lines.forEach((l, li) => {
+    g.append("text")
+      .attr("x", layer.w/2).attr("y", 16 + li * 14)
+      .attr("text-anchor","middle")
+      .style("font","bold 10px system-ui").style("fill", layer.color)
+      .text(l);
+  });
+
+  // Arrows between layers
+  if (i < unetLayers.length - 1) {
+    const next = unetLayers[i + 1];
+    gArch.append("line")
+      .attr("x1", layer.x + layer.w).attr("y1", layer.y + layer.h/2)
+      .attr("x2", next.x).attr("y2", next.y + next.h/2)
+      .attr("stroke", "#4a5568").attr("stroke-width", 1.5)
+      .attr("marker-end", "url(#arrow0)");
+  }
+});
+
+// Skip connections
+const skipPairs = [[0, 6], [1, 5], [2, 4]];
+skipPairs.forEach(([fromIdx, toIdx]) => {
+  const from = unetLayers[fromIdx];
+  const to = unetLayers[toIdx];
+  gArch.append("path")
+    .attr("d", `M${from.x + from.w/2},${from.y} Q${(from.x+to.x+to.w)/2},${from.y - 20} ${to.x + to.w/2},${to.y}`)
+    .attr("fill", "none")
+    .attr("stroke", "#d6bcfa")
+    .attr("stroke-width", 1.5)
+    .attr("stroke-dasharray", "4,3")
+    .attr("opacity", 0.6)
+    .attr("marker-end", "url(#arrow4)");
+});
+
+gArch.append("text")
+  .attr("x", 205).attr("y", 105)
+  .attr("text-anchor","middle")
+  .style("font","10px system-ui").style("fill","#d6bcfa")
+  .text("── skip connections ──");
+
+// Cross-attention label
+gArch.append("text")
+  .attr("x", 205).attr("y", 120)
+  .attr("text-anchor","middle")
+  .style("font","10px system-ui").style("fill","#63b3ed")
+  .text("↕ cross-attention (text embeddings injected here)");
+
+// Timestep embedding input
+gArch.append("text")
+  .attr("x", 205).attr("y", 135)
+  .attr("text-anchor","middle")
+  .style("font","10px system-ui").style("fill","#f687b3")
+  .text("↕ timestep embedding (sinusoidal encoding of t)");
+
+// ─── Init & Loop ─────────────────────────────────────────────────────────
+showPanel(0);
+d3.interval(tick, 50);
+
+</script>
+</body>
+</html>

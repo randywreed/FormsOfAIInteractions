@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Reinforcement Learning — Grid World Game</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #0f1117;
+      color: #e2e8f0;
+    }
+    #viz {
+      background: #1a1d2e;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      padding: 10px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .pulse { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+    .glow { filter: drop-shadow(0 0 6px rgba(99,179,237,0.6)); }
+    button {
+      background: #2d3748;
+      color: #e2e8f0;
+      border: 1px solid #4a5568;
+      border-radius: 6px;
+      padding: 8px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: system-ui;
+      transition: all 0.15s;
+    }
+    button:hover { background: #4a5568; }
+    button.active { background: #3182ce; border-color: #63b3ed; }
+    #controls {
+      display: flex;
+      gap: 10px;
+      padding: 10px 14px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #controls label {
+      font-size: 12px;
+      color: #a0aec0;
+    }
+    #speed-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 110px;
+      height: 6px;
+      border-radius: 3px;
+      background: #4a5568;
+      outline: none;
+    }
+    #speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #63b3ed;
+      cursor: pointer;
+    }
+    .info-badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #2d3748;
+      border: 1px solid #4a5568;
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+<div id="viz">
+  <div id="controls">
+    <button id="btn-play" class="active">▶ Play</button>
+    <button id="btn-pause">⏸ Pause</button>
+    <button id="btn-reset">↺ Reset</button>
+    <button id="btn-skip">+10 Episodes</button>
+    <button id="btn-fast">⚡ Train ×200</button>
+    <label>Speed <input id="speed-slider" type="range" min="1" max="10" value="5"></label>
+    <span class="info-badge" id="episode-badge">Episode: 0</span>
+    <span class="info-badge" id="step-badge">Step: 0</span>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+// ─── Configuration ───────────────────────────────────────────────────────
+const GRID_ROWS = 6, GRID_COLS = 8;
+const CELL = 56;
+const ACTIONS = ['up','right','down','left'];
+const ACTION_DX = [0,1,0,-1], ACTION_DY = [-1,0,1,0];
+const ARROW_CHARS = ['↑','→','↓','←'];
+
+// Speed (moved here so it's available before first updateLoopHighlight call)
+let speed = 5;
+
+// Layout
+const W = 1080, H = 760;
+const margin = {top: 10, left: 14};
+const gridOrigin = {x: 40, y: 80};
+const qTableOrigin = {x: 40, y: gridOrigin.y + GRID_ROWS*CELL + 80};
+const rewardChartOrigin = {x: GRID_COLS*CELL + 120, y: 140};
+const rlLoopOrigin = {x: GRID_COLS*CELL + 120, y: 430};
+
+// ─── World Setup ─────────────────────────────────────────────────────────
+// 0=empty, 1=wall, 2=pit(negative reward), 3=goal, 4=start
+const worldTemplate = [
+  [4,0,0,0,0,1,0,0],
+  [0,1,0,2,0,0,0,0],
+  [0,0,0,1,0,2,0,0],
+  [0,2,0,0,0,1,1,0],
+  [0,1,0,0,0,0,0,0],
+  [0,0,0,2,0,0,0,3],
+];
+
+function getReward(r,c) {
+  if (r < 0 || r >= GRID_ROWS || c < 0 || c >= GRID_COLS) return {r: -1, blocked: true};
+  const v = worldTemplate[r][c];
+  if (v === 1) return {r: -1, blocked: true};    // wall
+  if (v === 2) return {r: -10, blocked: false};   // pit
+  if (v === 3) return {r: +50, blocked: false};   // goal
+  return {r: -0.1, blocked: false};               // living penalty
+}
+function isGoal(r,c) { return worldTemplate[r][c] === 3; }
+
+// ─── Q-Learning Agent ────────────────────────────────────────────────────
+let Q = {};         // Q[state][action] = value
+let alpha = 0.15;   // learning rate
+let gamma = 0.95;   // discount factor
+let epsilon = 1.0;  // exploration rate (decays)
+const epsilonMin = 0.05;
+const epsilonDecay = 0.985;
+
+function stateKey(r,c) { return `${r},${c}`; }
+function getQ(s,a) { return (Q[s] && Q[s][a] !== undefined) ? Q[s][a] : 0; }
+function setQ(s,a,v) { if (!Q[s]) Q[s] = {}; Q[s][a] = v; }
+function bestAction(s) {
+  let best = 0, bestVal = -Infinity;
+  for (let a = 0; a < 4; a++) {
+    const v = getQ(s,a);
+    if (v > bestVal) { bestVal = v; best = a; }
+  }
+  return best;
+}
+
+// Agent state
+let agentR = 0, agentC = 0;
+let episode = 0, stepCount = 0, totalSteps = 0;
+let episodeReward = 0;
+let rewardHistory = [];    // per-episode cumulative rewards
+let lastTransition = null; // {s, a, r, s', done}
+let running = true;
+const MAX_STEPS_PER_EPISODE = 200;
+let wins = 0;  // count of episodes where goal was reached
+let celebrating = false;   // true when agent just reached the goal
+let celebrateTimer = 0;    // ticks remaining in celebration
+
+function resetEpisode() {
+  agentR = 0; agentC = 0;
+  episodeReward = 0;
+  stepCount = 0;
+}
+
+function agentStep() {
+  const s = stateKey(agentR, agentC);
+  // ε-greedy action selection
+  let a;
+  if (Math.random() < epsilon) {
+    a = Math.floor(Math.random() * 4);
+  } else {
+    a = bestAction(s);
+  }
+
+  let nr = agentR + ACTION_DY[a];
+  let nc = agentC + ACTION_DX[a];
+  const info = getReward(nr, nc);
+
+  if (info.blocked) { nr = agentR; nc = agentC; }
+
+  const sp = stateKey(nr, nc);
+  const reward = info.blocked ? -1 : info.r;
+  const done = isGoal(nr, nc) || stepCount >= MAX_STEPS_PER_EPISODE;
+
+  // Q-learning update
+  const oldQ = getQ(s, a);
+  const maxNextQ = done ? 0 : Math.max(...ACTIONS.map((_,i) => getQ(sp,i)));
+  const newQ = oldQ + alpha * (reward + gamma * maxNextQ - oldQ);
+  setQ(s, a, newQ);
+
+  lastTransition = {
+    s, a, r: reward, sp, done,
+    fromR: agentR, fromC: agentC, toR: nr, toC: nc,
+    actionName: ACTIONS[a], oldQ, newQ
+  };
+
+  agentR = nr;
+  agentC = nc;
+  episodeReward += reward;
+  stepCount++;
+  totalSteps++;
+
+  if (done) {
+    const reachedGoal = isGoal(nr, nc);
+    if (reachedGoal) wins++;
+    rewardHistory.push(episodeReward);
+    episode++;
+    epsilon = Math.max(epsilonMin, epsilon * epsilonDecay);
+    // Don't reset yet if goal was reached — let the visual show it
+    if (reachedGoal) {
+      celebrating = true;
+      celebrateTimer = 10;  // hold on goal for many ticks so users see it
+      return 'goal';       // signal to tick() to show celebration
+    }
+    resetEpisode();
+  }
+  return 'step';
+}
+
+// ─── SVG Setup ───────────────────────────────────────────────────────────
+const svg = d3.select("#viz").append("svg")
+  .attr("viewBox", `0 0 ${W} ${H}`)
+  .style("display", "block");
+
+const defs = svg.append("defs");
+// Glow filter
+const filter = defs.append("filter").attr("id","glow");
+filter.append("feGaussianBlur").attr("stdDeviation","3").attr("result","blur");
+filter.append("feMerge").selectAll("feMergeNode").data(["blur","SourceGraphic"])
+  .join("feMergeNode").attr("in", d=>d);
+
+// Arrow marker
+defs.append("marker").attr("id","arrowRL")
+  .attr("markerWidth",10).attr("markerHeight",8)
+  .attr("refX",8).attr("refY",4).attr("orient","auto")
+  .append("polygon").attr("points","0 0, 10 4, 0 8").attr("fill","#63b3ed");
+
+// Gradient for goal
+const goalGrad = defs.append("radialGradient").attr("id","goalGrad");
+goalGrad.append("stop").attr("offset","0%").attr("stop-color","#ffd700");
+goalGrad.append("stop").attr("offset","100%").attr("stop-color","#d69e2e");
+
+// ─── Title ───────────────────────────────────────────────────────────────
+svg.append("text")
+  .attr("x", 40).attr("y", 30)
+  .style("font","bold 22px system-ui").style("fill","#e2e8f0")
+  .text("Reinforcement Learning: Grid World Game");
+svg.append("text")
+  .attr("x", 40).attr("y", 52)
+  .style("font","13px system-ui").style("fill","#718096")
+  .text("Q-Learning agent navigates a grid, avoiding pits and finding the goal");
+
+// ─── Groups ──────────────────────────────────────────────────────────────
+const gridG = svg.append("g").attr("transform",`translate(${gridOrigin.x},${gridOrigin.y})`);
+const policyG = svg.append("g").attr("transform",`translate(${gridOrigin.x},${gridOrigin.y})`);
+const agentG = svg.append("g").attr("transform",`translate(${gridOrigin.x},${gridOrigin.y})`);
+const qHeatG = svg.append("g").attr("transform",`translate(${qTableOrigin.x},${qTableOrigin.y})`);
+const chartG = svg.append("g").attr("transform",`translate(${rewardChartOrigin.x},${rewardChartOrigin.y})`);
+const loopG  = svg.append("g").attr("transform",`translate(${rlLoopOrigin.x},${rlLoopOrigin.y})`);
+
+// ─── Render Grid ─────────────────────────────────────────────────────────
+const cellData = [];
+for (let r = 0; r < GRID_ROWS; r++)
+  for (let c = 0; c < GRID_COLS; c++)
+    cellData.push({r, c, v: worldTemplate[r][c]});
+
+function cellColor(v) {
+  if (v===1) return '#2d3748'; // wall
+  if (v===2) return '#742a2a'; // pit
+  if (v===3) return 'url(#goalGrad)'; // goal
+  return '#1e2030';
+}
+
+// Grid label
+gridG.append("text")
+  .attr("x",0).attr("y",-10)
+  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .text("Game World");
+
+// Cells
+gridG.selectAll("rect.cell").data(cellData).join("rect")
+  .attr("class","cell")
+  .attr("x", d=>d.c*CELL).attr("y", d=>d.r*CELL)
+  .attr("width",CELL-2).attr("height",CELL-2)
+  .attr("rx",4)
+  .attr("fill", d=>cellColor(d.v))
+  .attr("stroke","#2d3748").attr("stroke-width",1);
+
+// Cell icons/labels
+gridG.selectAll("text.icon").data(cellData.filter(d=>d.v>1)).join("text")
+  .attr("class","icon")
+  .attr("x", d=>d.c*CELL + CELL/2).attr("y", d=>d.r*CELL + CELL/2 + 2)
+  .attr("text-anchor","middle").attr("dominant-baseline","middle")
+  .style("font-size","20px")
+  .text(d => d.v===2 ? '🔥' : d.v===3 ? '⭐' : '');
+
+// Start marker
+gridG.append("text")
+  .attr("x", CELL/2).attr("y", CELL/2 + 2)
+  .attr("text-anchor","middle").attr("dominant-baseline","middle")
+  .style("font","10px system-ui").style("fill","#63b3ed")
+  .text("START");
+
+// Legend
+const legendData = [
+  {label:'Empty (-0.1)', color:'#1e2030'},
+  {label:'Wall (blocked)', color:'#2d3748'},
+  {label:'Pit (-10)', color:'#742a2a'},
+  {label:'Goal (+50)', color:'#d69e2e'},
+];
+const legendG = gridG.append("g").attr("transform",`translate(0,${GRID_ROWS*CELL+12})`);
+legendData.forEach((d,i) => {
+  const g = legendG.append("g").attr("transform",`translate(${i*120},0)`);
+  g.append("rect").attr("width",12).attr("height",12).attr("rx",2).attr("fill",d.color);
+  g.append("text").attr("x",16).attr("y",10)
+    .style("font","11px system-ui").style("fill","#a0aec0").text(d.label);
+});
+
+// ─── Render Agent ────────────────────────────────────────────────────────
+const agentCircle = agentG.append("circle")
+  .attr("r", CELL/2 - 8)
+  .attr("fill","#63b3ed")
+  .attr("stroke","#bee3f8").attr("stroke-width",2)
+  .style("filter","url(#glow)");
+
+const agentEmoji = agentG.append("text")
+  .attr("text-anchor","middle").attr("dominant-baseline","middle")
+  .style("font-size","22px").text("🤖");
+
+// Celebration burst (hidden initially)
+const celebGroup = agentG.append("g").style("opacity",0);
+celebGroup.append("circle").attr("r", CELL/2 + 4)
+  .attr("fill","none").attr("stroke","#ffd700").attr("stroke-width",3);
+celebGroup.append("text")
+  .attr("text-anchor","middle").attr("dy","-24")
+  .style("font","bold 16px system-ui").style("fill","#ffd700")
+  .text("+50 GOAL!");
+
+function updateAgent(animDur, showCelebration) {
+  const dur = (typeof animDur === 'number') ? animDur : 0;
+  const cx = agentC*CELL + CELL/2;
+  const cy = agentR*CELL + CELL/2;
+  agentCircle.transition().duration(dur).attr("cx",cx).attr("cy",cy);
+  agentEmoji.transition().duration(dur).attr("x",cx).attr("y",cy+2);
+
+  if (showCelebration) {
+    // Flash the agent gold and show celebration
+    agentCircle.transition().duration(150)
+      .attr("fill","#ffd700").attr("stroke","#fefcbf").attr("r", CELL/2 - 4);
+    agentEmoji.text("🏆");
+    celebGroup.attr("transform",`translate(${cx},${cy})`)
+      .transition().duration(200).style("opacity",1);
+  } else {
+    agentCircle.attr("fill","#63b3ed").attr("stroke","#bee3f8").attr("r", CELL/2 - 8);
+    agentEmoji.text("🤖");
+    celebGroup.style("opacity",0);
+  }
+}
+updateAgent(false, false);
+
+// ─── Policy Arrows ───────────────────────────────────────────────────────
+function renderPolicy() {
+  const arrowData = [];
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      if (worldTemplate[r][c] === 1 || worldTemplate[r][c] === 3) continue;
+      const s = stateKey(r,c);
+      if (!Q[s]) continue;
+      const a = bestAction(s);
+      const maxQ = getQ(s,a);
+      if (maxQ === 0 && !Q[s]) continue; // not visited
+      arrowData.push({r, c, a, q: maxQ});
+    }
+  }
+
+  const arrows = policyG.selectAll("text.policy-arrow").data(arrowData, d=>`${d.r},${d.c}`);
+  arrows.enter().append("text").attr("class","policy-arrow")
+    .attr("text-anchor","middle").attr("dominant-baseline","middle")
+    .style("pointer-events","none")
+    .merge(arrows)
+    .attr("x", d=> d.c*CELL + CELL/2)
+    .attr("y", d=> d.r*CELL + CELL/2)
+    .style("font-size","18px")
+    .style("fill", d => {
+      const v = d.q;
+      if (v > 10) return '#68d391';
+      if (v > 0)  return '#9ae6b4';
+      if (v > -5) return '#fc8181';
+      return '#feb2b2';
+    })
+    .style("opacity", d => {
+      // Hide arrow on the cell the agent is currently on
+      if (d.r === agentR && d.c === agentC) return 0;
+      return 0.7;
+    })
+    .text(d => ARROW_CHARS[d.a]);
+  arrows.exit().remove();
+}
+
+// ─── Q-Value Heatmap ─────────────────────────────────────────────────────
+const qCellSize = 18;
+const qColorScale = d3.scaleSequential(d3.interpolateRdYlGn).domain([-15, 30]);
+
+qHeatG.append("text")
+  .attr("x",0).attr("y",-10)
+  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .text("Q-Values (State-Action Quality)");
+
+qHeatG.append("text")
+  .attr("x",0).attr("y",6)
+  .style("font","11px system-ui").style("fill","#718096")
+  .text("Brightness = learned value for each state-action pair");
+
+function renderQHeatmap() {
+  const data = [];
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      for (let a = 0; a < 4; a++) {
+        const s = stateKey(r,c);
+        data.push({r, c, a, q: getQ(s,a), wall: worldTemplate[r][c]===1});
+      }
+    }
+  }
+
+  // Each cell is a 2x2 block: top=up, right=right, bottom=down, left=left
+  const blockW = qCellSize*2 + 2;
+  const blockH = qCellSize*2 + 2;
+  const offsets = [
+    {da:0, dx:0.5, dy:0},   // up
+    {da:1, dx:1, dy:0.5},   // right
+    {da:2, dx:0.5, dy:1},   // down
+    {da:3, dx:0, dy:0.5},   // left
+  ];
+
+  const cells = qHeatG.selectAll("rect.qcell").data(data, d=>`${d.r},${d.c},${d.a}`);
+  cells.enter().append("rect").attr("class","qcell")
+    .attr("width", qCellSize-1).attr("height", qCellSize-1).attr("rx",2)
+    .merge(cells)
+    .attr("x", d => d.c*blockW + offsets[d.a].dx*qCellSize + 2)
+    .attr("y", d => d.r*blockH + offsets[d.a].dy*qCellSize + 20)
+    .attr("fill", d => d.wall ? '#2d3748' : qColorScale(d.q))
+    .attr("stroke", d => {
+      // Highlight the cell that was just updated
+      if (lastTransition && d.r===lastTransition.fromR && d.c===lastTransition.fromC && d.a===lastTransition.a)
+        return '#ffd700';
+      return 'none';
+    })
+    .attr("stroke-width", d => {
+      if (lastTransition && d.r===lastTransition.fromR && d.c===lastTransition.fromC && d.a===lastTransition.a)
+        return 2;
+      return 0;
+    });
+  cells.exit().remove();
+
+  // Action labels per column header (once)
+  qHeatG.selectAll("text.qcol-label").data(d3.range(GRID_COLS)).join("text")
+    .attr("class","qcol-label")
+    .attr("x", d => d*blockW + blockW/2)
+    .attr("y", 18)
+    .attr("text-anchor","middle")
+    .style("font","9px system-ui").style("fill","#718096")
+    .text(d => `C${d}`);
+}
+
+// ─── Reward Chart ────────────────────────────────────────────────────────
+const chartW = 380, chartH = 220;
+
+chartG.append("text")
+  .attr("x",0).attr("y",-10)
+  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .text("Episode Reward Over Time");
+
+chartG.append("text")
+  .attr("x",0).attr("y",6)
+  .style("font","11px system-ui").style("fill","#718096")
+  .text("Total reward per episode — should trend upward");
+
+chartG.append("rect")
+  .attr("y",14).attr("width",chartW).attr("height",chartH)
+  .attr("rx",6).attr("fill","#141622").attr("stroke","#2d3748");
+
+const chartInner = chartG.append("g").attr("transform","translate(40,24)");
+const innerW = chartW - 60, innerH = chartH - 30;
+
+// Axes groups
+const xAxisG = chartInner.append("g").attr("transform",`translate(0,${innerH})`);
+const yAxisG = chartInner.append("g");
+const linePathG = chartInner.append("path")
+  .attr("fill","none").attr("stroke","#63b3ed").attr("stroke-width",2);
+const avgPathG = chartInner.append("path")
+  .attr("fill","none").attr("stroke","#f6ad55").attr("stroke-width",2)
+  .attr("stroke-dasharray","4,3");
+
+// Chart legend
+const cLeg = chartG.append("g").attr("transform",`translate(50,${chartH + 22})`);
+cLeg.append("line").attr("x1",0).attr("y1",0).attr("x2",16).attr("y2",0).attr("stroke","#63b3ed").attr("stroke-width",2);
+cLeg.append("text").attr("x",20).attr("y",4).style("font","11px system-ui").style("fill","#a0aec0").text("Per episode");
+cLeg.append("line").attr("x1",110).attr("y1",0).attr("x2",126).attr("y2",0).attr("stroke","#f6ad55").attr("stroke-width",2).attr("stroke-dasharray","4,3");
+cLeg.append("text").attr("x",130).attr("y",4).style("font","11px system-ui").style("fill","#a0aec0").text("Moving avg (10)");
+
+function renderChart() {
+  if (rewardHistory.length < 2) return;
+
+  const x = d3.scaleLinear().domain([0, rewardHistory.length-1]).range([0, innerW]);
+  const y = d3.scaleLinear().domain(d3.extent(rewardHistory)).nice().range([innerH, 0]);
+
+  xAxisG.call(d3.axisBottom(x).ticks(6).tickFormat(d3.format("d")))
+    .selectAll("text,line,path").style("stroke","#4a5568").style("fill","#718096").style("font-size","10px");
+  yAxisG.call(d3.axisLeft(y).ticks(5))
+    .selectAll("text,line,path").style("stroke","#4a5568").style("fill","#718096").style("font-size","10px");
+
+  const line = d3.line().x((_,i)=>x(i)).y(d=>y(d)).curve(d3.curveMonotoneX);
+  linePathG.datum(rewardHistory).attr("d", line);
+
+  // Moving average
+  const window = 10;
+  if (rewardHistory.length >= window) {
+    const avg = [];
+    for (let i = 0; i < rewardHistory.length; i++) {
+      const start = Math.max(0, i - window + 1);
+      const slice = rewardHistory.slice(start, i+1);
+      avg.push(d3.mean(slice));
+    }
+    avgPathG.datum(avg).attr("d", line);
+  }
+}
+
+// ─── RL Loop Diagram ─────────────────────────────────────────────────────
+const loopW = 380, loopH = 260;
+
+loopG.append("text")
+  .attr("x",0).attr("y",-10)
+  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .text("The RL Loop");
+
+// Circular flow of RL
+const loopNodes = [
+  {id:'state',   label:'State (s)',      x:190, y:25,  color:'#4299e1', desc:'Agent observes grid position'},
+  {id:'action',  label:'Action (a)',     x:340, y:95,  color:'#9f7aea', desc:'ε-greedy: explore or exploit'},
+  {id:'env',     label:'Environment',    x:340, y:195, color:'#ed8936', desc:'World returns next state'},
+  {id:'reward',  label:'Reward (r)',     x:190, y:255, color:'#48bb78', desc:'Signal: good or bad?'},
+  {id:'update',  label:'Q-Update',      x:40,  y:150, color:'#fc8181', desc:'Q(s,a) ← Q + α·(r+γ·max Q\' − Q)'},
+];
+
+const loopEdges = [
+  {from:'state',  to:'action'},
+  {from:'action', to:'env'},
+  {from:'env',    to:'reward'},
+  {from:'reward', to:'update'},
+  {from:'update', to:'state'},
+];
+
+// Draw edges
+loopEdges.forEach(e => {
+  const from = loopNodes.find(n=>n.id===e.from);
+  const to = loopNodes.find(n=>n.id===e.to);
+  loopG.append("line")
+    .attr("x1",from.x).attr("y1",from.y+14)
+    .attr("x2",to.x).attr("y2",to.y-8)
+    .attr("stroke","#4a5568").attr("stroke-width",2)
+    .attr("marker-end","url(#arrowRL)");
+});
+
+// Draw nodes
+const nodeG = loopG.selectAll("g.loop-node").data(loopNodes).join("g")
+  .attr("class","loop-node")
+  .attr("transform", d=>`translate(${d.x},${d.y})`);
+
+nodeG.append("rect")
+  .attr("x",-50).attr("y",-14).attr("width",100).attr("height",28)
+  .attr("rx",6)
+  .attr("fill", d=>d.color).attr("opacity",0.2)
+  .attr("stroke", d=>d.color).attr("stroke-width",2);
+
+nodeG.append("text")
+  .attr("text-anchor","middle").attr("dy","0.35em")
+  .style("font","bold 12px system-ui")
+  .style("fill", d=>d.color)
+  .text(d=>d.label);
+
+nodeG.append("text")
+  .attr("text-anchor","middle").attr("y",22)
+  .style("font","10px system-ui").style("fill","#718096")
+  .text(d=>d.desc);
+
+// Highlight currently active loop node
+const loopHighlight = loopG.append("rect")
+  .attr("width",108).attr("height",34).attr("rx",8)
+  .attr("fill","none").attr("stroke","#ffd700").attr("stroke-width",2)
+  .style("filter","url(#glow)");
+
+let loopPhase = 0;  // 0=state, 1=action, 2=env, 3=reward, 4=update
+
+function updateLoopHighlight() {
+  const node = loopNodes[loopPhase % loopNodes.length];
+  const dur = Math.max(30, 200 - speed * 16);
+  loopHighlight.transition().duration(dur)
+    .attr("x", node.x - 54).attr("y", node.y - 17);
+}
+updateLoopHighlight();
+
+// ─── Transition Info Box ─────────────────────────────────────────────────
+const infoG = svg.append("g").attr("transform",`translate(${rlLoopOrigin.x},${rlLoopOrigin.y + 290})`);
+
+infoG.append("rect")
+  .attr("width",380).attr("height",30).attr("rx",6)
+  .attr("fill","#1e2030").attr("stroke","#4a5568");
+
+const infoText = infoG.append("text")
+  .attr("x",10).attr("y",19)
+  .style("font","12px monospace").style("fill","#a0aec0");
+
+function updateInfo() {
+  if (!lastTransition) {
+    infoText.text("Waiting for first step...");
+    return;
+  }
+  const t = lastTransition;
+  const arrow = ARROW_CHARS[t.a];
+  infoText.text(
+    `${t.s} ${arrow}${t.actionName} → r=${t.r>0?'+':''}${t.r.toFixed(1)}  Q: ${t.oldQ.toFixed(2)}→${t.newQ.toFixed(2)}  ε=${epsilon.toFixed(3)}`
+  );
+}
+
+// ─── Exploration/Exploitation Gauge ──────────────────────────────────────
+const gaugeG = svg.append("g").attr("transform",`translate(${gridOrigin.x + GRID_COLS*CELL + 130}, 68)`);
+
+gaugeG.append("text").attr("y",-6)
+  .style("font","bold 11px system-ui").style("fill","#a0aec0")
+  .text("Explore ← → Exploit");
+
+const gaugeW = 150, gaugeH = 10;
+gaugeG.append("rect").attr("width",gaugeW).attr("height",gaugeH).attr("rx",5)
+  .attr("fill","#2d3748");
+
+const gaugeFill = gaugeG.append("rect").attr("height",gaugeH).attr("rx",5);
+const gaugeLabel = gaugeG.append("text").attr("y",gaugeH+14)
+  .style("font","11px monospace").style("fill","#718096");
+
+function updateGauge() {
+  const exploitFrac = 1 - epsilon;
+  gaugeFill.transition().duration(300)
+    .attr("width", gaugeW * exploitFrac)
+    .attr("fill", d3.interpolateRgb("#9f7aea","#48bb78")(exploitFrac));
+  gaugeLabel.text(`ε = ${epsilon.toFixed(3)} (${(epsilon*100).toFixed(1)}% random)`);
+}
+updateGauge();
+
+// ─── Main Loop ───────────────────────────────────────────────────────────
+let timer = null;
+
+function tick() {
+  if (!running) return;
+
+  // If celebrating a goal, count down then reset
+  if (celebrating) {
+    celebrateTimer--;
+    if (celebrateTimer <= 0) {
+      celebrating = false;
+      resetEpisode();
+      updateAgent(false, false);
+    }
+    return;
+  }
+
+  // Always run exactly 1 step per tick so every move is visible
+  const result = agentStep();
+  const hitGoal = result === 'goal';
+
+  // Update visuals — animation duration scales with speed
+  const animDur = Math.max(30, 200 - speed * 18);
+  updateAgent(animDur, hitGoal);
+  renderPolicy();
+  renderQHeatmap();
+  renderChart();
+  updateInfo();
+  updateGauge();
+
+  // Cycle the loop diagram highlight — advance through all 5 phases per step
+  // so the loop completes once for every action taken
+  loopPhase = (loopPhase + 1) % loopNodes.length;
+  updateLoopHighlight();
+
+  // Update badges
+  d3.select("#episode-badge").text(`Episode: ${episode}`);
+  d3.select("#step-badge").text(`Step: ${totalSteps}  Wins: ${wins}`);
+}
+
+function startTimer() {
+  if (timer) timer.stop();
+  // Speed 1 = 550ms per step (slow, easy to follow)
+  // Speed 5 = 250ms per step
+  // Speed 10 = 40ms per step (very fast but every move still visible)
+  const ms = Math.max(40, 590 - speed * 55);
+  timer = d3.interval(tick, ms);
+}
+startTimer();
+
+// ─── Controls ────────────────────────────────────────────────────────────
+d3.select("#btn-play").on("click", function() {
+  running = true;
+  d3.select(this).classed("active", true);
+  d3.select("#btn-pause").classed("active", false);
+  startTimer();
+});
+
+d3.select("#btn-pause").on("click", function() {
+  running = false;
+  d3.select(this).classed("active", true);
+  d3.select("#btn-play").classed("active", false);
+  if (timer) timer.stop();
+});
+
+d3.select("#btn-reset").on("click", function() {
+  Q = {};
+  epsilon = 1.0;
+  episode = 0;
+  totalSteps = 0;
+  wins = 0;
+  rewardHistory = [];
+  lastTransition = null;
+  loopPhase = 0;
+  celebrating = false;
+  celebrateTimer = 0;
+  resetEpisode();
+
+  updateAgent(false, false);
+  renderPolicy();
+  renderQHeatmap();
+  renderChart();
+  updateInfo();
+  updateGauge();
+  updateLoopHighlight();
+  d3.select("#episode-badge").text("Episode: 0");
+  d3.select("#step-badge").text("Step: 0  Wins: 0");
+});
+
+d3.select("#btn-skip").on("click", function() {
+  celebrating = false;
+  celebrateTimer = 0;
+  if (agentR === 5 && agentC === 7) resetEpisode();
+  const targetEpisodes = episode + 10;
+  while (episode < targetEpisodes) {
+    const result = agentStep();
+    if (result === 'goal') {
+      celebrating = false;
+      resetEpisode();
+    }
+  }
+  updateAgent(false, false);
+  renderPolicy();
+  renderQHeatmap();
+  renderChart();
+  updateInfo();
+  updateGauge();
+  d3.select("#episode-badge").text(`Episode: ${episode}`);
+  d3.select("#step-badge").text(`Step: ${totalSteps}  Wins: ${wins}`);
+});
+
+d3.select("#btn-fast").on("click", function() {
+  // Run 200 episodes silently, then update display
+  celebrating = false;
+  celebrateTimer = 0;
+  // If we were mid-celebration, reset the episode first
+  if (agentR === 5 && agentC === 7) resetEpisode();
+  const targetEpisodes = episode + 200;
+  while (episode < targetEpisodes) {
+    const result = agentStep();
+    if (result === 'goal') {
+      celebrating = false;
+      resetEpisode();
+    }
+  }
+  updateAgent(false, false);
+  renderPolicy();
+  renderQHeatmap();
+  renderChart();
+  updateInfo();
+  updateGauge();
+  d3.select("#episode-badge").text(`Episode: ${episode}`);
+  d3.select("#step-badge").text(`Step: ${totalSteps}  Wins: ${wins}`);
+});
+
+d3.select("#speed-slider").on("input", function() {
+  speed = +this.value;
+  if (running) startTimer();
+});
+
+// Initial renders
+renderPolicy();
+renderQHeatmap();
+renderChart();
+updateInfo();
+</script>
+</body>
+</html>

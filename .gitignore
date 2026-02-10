@@ -1,0 +1,19 @@
+# Playwright MCP screenshots
+.playwright-mcp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+
+# Node (if ever used)
+node_modules/

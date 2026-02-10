@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Inside the Model - 3D Number Matrix Zoom</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+        #container {
+            width: 100vw;
+            height: 100vh;
+        }
+        .number {
+            fill: #0f0;
+            font-size: 14px;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+        #instructions {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #0f0;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="instructions">Click to zoom in/out</div>
+    <svg id="container"></svg>
+    
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script>
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        
+        // Create 3D matrix of numbers
+        const depth = 10, rows = 10, cols = 10;
+        let numbers = [];
+        
+        function generateMatrix() {
+            numbers = [];
+            for (let z = 0; z < depth; z++) {
+                for (let y = 0; y < rows; y++) {
+                    for (let x = 0; x < cols; x++) {
+                        numbers.push({
+                            x, y, z,
+                            value: Math.floor(Math.random() * 10)
+                        });
+                    }
+                }
+            }
+        }
+        
+        generateMatrix();
+        
+        const svg = d3.select("#container");
+        const g = svg.append("g");
+        
+        let isZoomedIn = false;
+        let cameraZ = -500;
+        let rotationX = 0, rotationY = 0;
+        
+        // Project 3D to 2D
+        function project(point, zoomLevel, rotation) {
+            const perspective = 1000;
+            const scale = zoomLevel;
+            
+            // Apply rotation
+            const cosX = Math.cos(rotation.x);
+            const sinX = Math.sin(rotation.x);
+            const cosY = Math.cos(rotation.y);
+            const sinY = Math.sin(rotation.y);
+            
+            let x = point.x - cols / 2;
+            let y = point.y - rows / 2;
+            let z = point.z - depth / 2;
+            
+            // Rotate around Y axis
+            let rotatedX = x * cosY - z * sinY;
+            let rotatedZ = x * sinY + z * cosY;
+            
+            // Rotate around X axis
+            let rotatedY = y * cosX - rotatedZ * sinX;
+            rotatedZ = y * sinX + rotatedZ * cosX;
+            
+            const finalZ = rotatedZ * scale + cameraZ;
+            const screenScale = perspective / (perspective - finalZ);
+            
+            return {
+                x: rotatedX * scale * screenScale + width / 2,
+                y: rotatedY * scale * screenScale + height / 2,
+                scale: screenScale,
+                z: finalZ
+            };
+        }
+        
+        function render() {
+            const zoomLevel = isZoomedIn ? 60 : 5;
+            const rotation = isZoomedIn ? { x: rotationX, y: rotationY } : { x: 0, y: 0 };
+            
+            const texts = g.selectAll(".number")
+                .data(numbers, (d, i) => i);
+            
+            texts.enter()
+                .append("text")
+                .attr("class", "number")
+                .merge(texts)
+                .each(function(d) {
+                    const pos = project(d, zoomLevel, rotation);
+                    d.projected = pos;
+                })
+                .sort((a, b) => a.projected.z - b.projected.z)
+                .transition()
+                .duration(1500)
+                .attr("x", d => d.projected.x)
+                .attr("y", d => d.projected.y)
+                .attr("opacity", d => isZoomedIn ? Math.max(0.2, d.projected.scale) : 1)
+                .attr("font-size", d => isZoomedIn ? 14 * d.projected.scale : 14)
+                .text(d => d.value);
+        }
+        
+        // Update numbers continuously
+        setInterval(() => {
+            numbers.forEach(n => {
+                if (Math.random() < 0.1) {
+                    n.value = Math.floor(Math.random() * 10);
+                }
+            });
+            render();
+        }, 200);
+        
+        // Handle zoom toggle
+        svg.on("click", () => {
+            isZoomedIn = !isZoomedIn;
+            cameraZ = isZoomedIn ? 0 : -500;
+            render();
+        });
+        
+        // Mouse movement for rotation when zoomed in
+        svg.on("mousemove", (event) => {
+            if (isZoomedIn) {
+                rotationY = (event.clientX / width - 0.5) * Math.PI;
+                rotationX = (event.clientY / height - 0.5) * Math.PI * 0.5;
+                render();
+            }
+        });
+        
+        // Initial render
+        render();
+    </script>
+</body>
+</html>

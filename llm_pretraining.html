@@ -36,12 +36,12 @@ const layout = {
   model: {x: 30, y: 140, w: 420, h: 220},
   pred: {x: 480, y: 140, w: 380, h: 220},
   loss: {x: 30, y: 380, w: 300, h: 140},
-  weights: {x: 360, y: 380, w: 500, h: 140}
+  weights: {x: 400, y: 380, w: 460, h: 140}
 };
 
 // Example sentence + ground-truth for masked positions
 const tokens = ["The","quick","brown","fox","jumps","over","the","lazy","dog"];
-let maskIndex = 3; // start with "fox"
+let maskIndex = 0; // start with "The"
 let step = 0;
 let lossHistory = [];
 let trainingRound = 0; // Track how many times we've trained on current token
@@ -104,7 +104,7 @@ const flowG = svg.append("g").attr("class", "flows");
 flowG.selectAll("path.flow-arrow").data([
   {x1: 30+400, y1: 100, x2: 480, y2: 160, label: "③ Output", color: "#4299e1"},
   {x1: 650, y1: 360, x2: 200, y2: 380, label: "④ Compare", color: "#ed8936"},
-  {x1: 250, y1: 520, x2: 360, y2: 480, label: "⑤ Update", color: "#48bb78"}
+  {x1: 280, y1: 520, x2: 400, y2: 480, label: "⑤ Update", color: "#48bb78"}
 ]).join("path")
   .attr("class", "flow-arrow")
   .attr("d", d => `M ${d.x1} ${d.y1} L ${d.x2} ${d.y2}`)
@@ -117,7 +117,7 @@ flowG.selectAll("path.flow-arrow").data([
 const stepLabels = flowG.selectAll("g.flow-label").data([
   {x: 460, y: 120, text: "③ Predict masked token", color: "#4299e1"},
   {x: 420, y: 372, text: "④ Calculate loss", color: "#ed8936"},
-  {x: 300, y: 492, text: "⑤ Backprop & update", color: "#48bb78"}
+  {x: 320, y: 530, text: "⑤ Backprop & update", color: "#48bb78"}
 ]);
 const stepEnter = stepLabels.enter().append("g").attr("class", "flow-label");
 stepEnter.append("rect")
@@ -413,8 +413,8 @@ function renderLoss(loss=NaN) {
 // Weights heatmap (toy)
 function renderWeights() {
   const {w,h} = layout.weights;
-  const cell = Math.min((w-20)/N, (h-35)/M);
-  const gx = 10, gy = 30;
+  const cell = Math.min((w-20)/N, (h-50)/M);
+  const gx = 10, gy = 45;
 
   weightsG.selectAll("text.title").data([1]).join("text")
     .attr("x", 0).attr("y", 16).style("font","bold 14px system-ui")
@@ -426,38 +426,101 @@ function renderWeights() {
     .style("fill", "#718096")
     .text("Updated via gradient descent • Red=positive, Blue=negative");
 
-  const cells = weightsG.selectAll("rect.cell").data(weights, (d,i)=>i);
-  cells.enter().append("rect").attr("class","cell")
+  const cells = weightsG.selectAll("g.cell").data(weights, (d,i)=>i);
+  
+  const cellsEnter = cells.enter().append("g").attr("class","cell");
+  
+  // Add 3D effect with offset rectangles
+  cellsEnter.append("rect").attr("class","shadow")
     .attr("width", cell-2).attr("height", cell-2)
-    .attr("x",(d,i)=>gx + (i%N)*cell).attr("y",(d,i)=>gy + Math.floor(i/N)*cell)
-    .attr("fill", d=>wColor(d)).attr("stroke","#fff").attr("stroke-width",1)
-  .merge(cells)
+    .attr("fill", "#333").attr("opacity", 0.2);
+    
+  cellsEnter.append("rect").attr("class","main")
+    .attr("width", cell-2).attr("height", cell-2)
+    .attr("stroke","#fff").attr("stroke-width",1);
+  
+  cellsEnter.append("text").attr("class","value")
+    .attr("text-anchor", "middle")
+    .attr("dominant-baseline", "middle")
+    .style("font", `${Math.max(8, cell/4)}px monospace`)
+    .style("pointer-events", "none");
+
+  const cellsMerged = cellsEnter.merge(cells);
+  
+  cellsMerged.attr("transform", (d,i)=> {
+    const col = i % N;
+    const row = Math.floor(i / N);
+    return `translate(${gx + col*cell},${gy + row*cell})`;
+  });
+  
+  cellsMerged.select("rect.shadow")
+    .attr("x", 3).attr("y", 3);
+  
+  cellsMerged.select("rect.main")
     .transition().duration(600)
     .attr("fill", d=>wColor(d));
+  
+  cellsMerged.select("text.value")
+    .attr("x", (cell-2)/2)
+    .attr("y", (cell-2)/2)
+    .transition().duration(600)
+    .style("fill", d => Math.abs(d) > 0.6 ? "#fff" : "#333")
+    .tween("text", function(d) {
+      const i = d3.interpolateNumber(+this.textContent || d, d);
+      return function(t) {
+        this.textContent = i(t).toFixed(1);
+      };
+    });
 
   cells.exit().remove();
+  
+  // Add axis labels
+  weightsG.selectAll("text.row-label").data(d3.range(M)).join("text")
+    .attr("class", "row-label")
+    .attr("x", gx - 5)
+    .attr("y", (d) => gy + d*cell + (cell-2)/2)
+    .attr("text-anchor", "end")
+    .attr("dominant-baseline", "middle")
+    .style("font", "9px system-ui")
+    .style("fill", "#999")
+    .text(d => d);
+    
+  weightsG.selectAll("text.col-label").data(d3.range(N)).join("text")
+    .attr("class", "col-label")
+    .attr("x", (d) => gx + d*cell + (cell-2)/2)
+    .attr("y", gy - 5)
+    .attr("text-anchor", "middle")
+    .style("font", "9px system-ui")
+    .style("fill", "#999")
+    .text(d => d);
 }
 
 // Fake single step of “training”
 function stepOnce() {
   // 1) Show model predictions for the masked token
   const trueToken = tokens[maskIndex];
-  const vocab = ["wolf","cat","fox","hen","bear","owl","goat","yak","fish","ant"];
+  const vocab = ["wolf","cat","fox","hen","bear","owl","goat","yak","fish","ant","The","quick","brown","jumps","over","lazy","dog"];
   
   // Improve predictions over multiple rounds
   // Start with poor predictions, improve with each round
   const learningProgress = trainingRound / (roundsPerToken - 1); // 0 to 1
-  const probs = vocab.map(v => ({ token: v, p: Math.random()*0.15 }));
+  
+  // Generate random probabilities for all vocab words
+  const probs = vocab.map(v => ({ 
+    token: v, 
+    p: Math.random() * (0.3 - learningProgress * 0.25) // Random but decreasing as we learn
+  }));
+  
   const idx = probs.findIndex(d=>d.token===trueToken);
   
-  // Gradually increase probability of true token as training progresses
   if (idx >= 0) {
-    probs[idx].p = 0.1 + learningProgress * 0.7 + Math.random()*0.1;
+    // Start with low probability for true token, increase with learning
+    // Early: 0.05-0.15, Late: 0.7-0.9
+    probs[idx].p = (0.05 + Math.random()*0.1) + learningProgress * (0.65 + Math.random()*0.15);
   } else {
-    // True token not in vocab, use a proxy
-    const proxyIdx = Math.floor(Math.random() * probs.length);
-    probs[proxyIdx].token = trueToken;
-    probs[proxyIdx].p = 0.1 + learningProgress * 0.7 + Math.random()*0.1;
+    // True token not in vocab, add it
+    const newProb = (0.05 + Math.random()*0.1) + learningProgress * (0.65 + Math.random()*0.15);
+    probs.push({token: trueToken, p: newProb});
   }
   
   const top5 = probs.sort((a,b)=>b.p-a.p).slice(0,5);
@@ -469,8 +532,14 @@ function stepOnce() {
   lossHistory.push(loss);
   renderLoss(loss);
 
-  // 3) Update weights (subtle random nudge toward "better")
-  weights = weights.map(w => w + d3.randomNormal(0, 0.05)());
+  // 3) Update weights - simulate gradient descent
+  // Weights should move in direction that reduces loss
+  const gradient = loss * 0.05; // learning rate
+  weights = weights.map((w, i) => {
+    // Add some structured updates based on position
+    const change = d3.randomNormal(0, 0.08)() - gradient * Math.sign(w) * 0.1;
+    return Math.max(-1.5, Math.min(1.5, w + change)); // Clamp values
+  });
   renderWeights();
 
   // 4) Show training progress

@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>How Image Diffusion Models Work</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #0f1117;
+      color: #e2e8f0;
+    }
+    #viz {
+      background: #1a1d2e;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      padding: 10px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    button {
+      background: #2d3748;
+      color: #e2e8f0;
+      border: 1px solid #4a5568;
+      border-radius: 6px;
+      padding: 8px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: system-ui;
+      transition: all 0.15s;
+    }
+    button:hover { background: #4a5568; }
+    button.active { background: #3182ce; border-color: #63b3ed; }
+    #controls {
+      display: flex;
+      gap: 10px;
+      padding: 10px 14px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #controls label {
+      font-size: 12px;
+      color: #a0aec0;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 130px;
+      height: 6px;
+      border-radius: 3px;
+      background: #4a5568;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #63b3ed;
+      cursor: pointer;
+    }
+    .info-badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      background: #2d3748;
+      border: 1px solid #4a5568;
+    }
+    .pulse { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+  </style>
+</head>
+<body>
+<div id="viz">
+  <div id="controls">
+    <button id="btn-forward" class="active">▶ Forward (Add Noise)</button>
+    <button id="btn-reverse">◀ Reverse (Denoise)</button>
+    <button id="btn-pause">⏸ Pause</button>
+    <button id="btn-reset">↺ Reset</button>
+    <button id="btn-sample">🎨 New Image</button>
+    <label>Speed <input id="speed-slider" type="range" min="1" max="10" value="4"></label>
+    <label>Guidance Scale <input id="guidance-slider" type="range" min="0" max="25" value="7" step="1"></label>
+    <span class="info-badge" id="guidance-badge">s = 7.0</span>
+    <span class="info-badge" id="step-badge">t = 0 / 40</span>
+    <span class="info-badge" id="mode-badge">Forward Process</span>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script>
+// ─── Configuration ───────────────────────────────────────────────────────
+const W = 1180, H = 1060;
+const TOTAL_STEPS = 40;
+const PIXEL_SIZE = 16;      // Size of each pixel block in the image grid
+const IMG_ROWS = 16;
+const IMG_COLS = 16;
+
+// ─── Color palettes for simple images ────────────────────────────────────
+const IMAGES = [];
+
+// Helper: create a 16x16 pixel image (an array of [r,g,b] values)
+function makeHeart() {
+  const img = Array.from({length: IMG_ROWS}, () =>
+    Array.from({length: IMG_COLS}, () => [25, 25, 50])
+  );
+  const heartPattern = [
+    "................",
+    "..xxx....xxx....",
+    ".xxxxx..xxxxx...",
+    "xxxxxxxxxxxxxxx.",
+    "xxxxxxxxxxxxxxx.",
+    "xxxxxxxxxxxxxxx.",
+    "xxxxxxxxxxxxxxx.",
+    ".xxxxxxxxxxxxx..",
+    "..xxxxxxxxxxx...",
+    "...xxxxxxxxx....",
+    "....xxxxxxx.....",
+    ".....xxxxx......",
+    "......xxx.......",
+    ".......x........",
+    "................",
+    "................",
+  ];
+  for (let r = 0; r < 16; r++)
+    for (let c = 0; c < 16; c++)
+      if (heartPattern[r][c] === 'x') img[r][c] = [220, 50, 80];
+  return img;
+}
+
+function makeStar() {
+  const img = Array.from({length: IMG_ROWS}, () =>
+    Array.from({length: IMG_COLS}, () => [20, 20, 55])
+  );
+  const starPattern = [
+    "................",
+    ".......xx.......",
+    ".......xx.......",
+    "......xxxx......",
+    "......xxxx......",
+    "..xxxxxxxxxxxx..",
+    "...xxxxxxxxxx...",
+    "....xxxxxxxx....",
+    ".....xxxxxx.....",
+    "....xxxxxxxx....",
+    "...xx......xx...",
+    "..xx........xx..",
+    "..x..........x..",
+    "................",
+    "................",
+    "................",
+  ];
+  for (let r = 0; r < 16; r++)
+    for (let c = 0; c < 16; c++)
+      if (starPattern[r][c] === 'x') img[r][c] = [255, 210, 50];
+  return img;
+}
+
+function makeSmiley() {
+  const img = Array.from({length: IMG_ROWS}, () =>
+    Array.from({length: IMG_COLS}, () => [20, 30, 60])
+  );
+  const pattern = [
+    "................",
+    "....xxxxxxxx....",
+    "..xxxxxxxxxxxx..",
+    "..xxxxxxxxxxxx..",
+    ".xxxxxx..xxxxxx.",
+    ".xxx..xxxx..xxx.",
+    ".xxx..xxxx..xxx.",
+    ".xxxxxxxxxxxxxx.",
+    ".xxxxxxxxxxxxxx.",
+    ".xx.xxxxxxxx.xx.",
+    ".xxx.xxxxxx.xxx.",
+    "..xxx......xxx..",
+    "..xxxxxxxxxxxx..",
+    "....xxxxxxxx....",
+    "................",
+    "................",
+  ];
+  for (let r = 0; r < 16; r++)
+    for (let c = 0; c < 16; c++)
+      if (pattern[r][c] === 'x') img[r][c] = [255, 200, 50];
+  return img;
+}
+
+function makeTree() {
+  const img = Array.from({length: IMG_ROWS}, () =>
+    Array.from({length: IMG_COLS}, () => [15, 25, 50])
+  );
+  const pattern = [
+    "................",
+    ".......xx.......",
+    "......xxxx......",
+    ".....xxxxxx.....",
+    "......xxxx......",
+    ".....xxxxxx.....",
+    "....xxxxxxxx....",
+    "...xxxxxxxxxx...",
+    "....xxxxxxxx....",
+    "...xxxxxxxxxx...",
+    "..xxxxxxxxxxxx..",
+    ".xxxxxxxxxxxxxx.",
+    ".......xx.......",
+    ".......xx.......",
+    "......xxxx......",
+    "................",
+  ];
+  for (let r = 0; r < 16; r++)
+    for (let c = 0; c < 16; c++) {
+      if (pattern[r][c] === 'x') {
+        if (r >= 12) img[r][c] = [120, 80, 40]; // trunk
+        else img[r][c] = [40, 180, 80]; // leaves
+      }
+    }
+  return img;
+}
+
+IMAGES.push(makeHeart(), makeStar(), makeSmiley(), makeTree());
+
+// ─── Noise schedule (cosine schedule approximation) ──────────────────────
+function noiseLevel(t) {
+  // Returns noise amount [0,1] for timestep t (0 = clean, TOTAL_STEPS = pure noise)
+  // Using cosine schedule
+  const s = 0.008;
+  const f = Math.cos(((t / TOTAL_STEPS + s) / (1 + s)) * Math.PI / 2);
+  const f0 = Math.cos((s / (1 + s)) * Math.PI / 2);
+  return 1 - (f * f) / (f0 * f0);
+}
+
+// ─── Image noising ──────────────────────────────────────────────────────
+let currentImageIdx = 0;
+let cleanImage = IMAGES[0];
+
+// Precompute stable per-pixel noise (so animation is smooth, not flickering)
+let pixelNoise = [];  // [row][col] = [nr, ng, nb] random target noise color
+function regenerateNoise() {
+  pixelNoise = Array.from({length: IMG_ROWS}, () =>
+    Array.from({length: IMG_COLS}, () => [
+      Math.random() * 255,
+      Math.random() * 255,
+      Math.random() * 255
+    ])
+  );
+}
+regenerateNoise();
+
+function getNoisyPixel(r, c, t) {
+  const alpha = noiseLevel(t);
+  const clean = cleanImage[r][c];
+  const noise = pixelNoise[r][c];
+  return [
+    Math.round(clean[0] * (1 - alpha) + noise[0] * alpha),
+    Math.round(clean[1] * (1 - alpha) + noise[1] * alpha),
+    Math.round(clean[2] * (1 - alpha) + noise[2] * alpha),
+  ];
+}
+
+// ─── State ───────────────────────────────────────────────────────────────
+let currentStep = 0;
+let mode = 'forward';   // 'forward' or 'reverse'
+let running = true;
+let speed = 4;
+let tickCounter = 0;
+
+// ─── SVG Setup ───────────────────────────────────────────────────────────
+const svg = d3.select("#viz").append("svg")
+  .attr("viewBox", `0 0 ${W} ${H}`)
+  .style("display", "block");
+
+const defs = svg.append("defs");
+
+// Glow filter
+const filter = defs.append("filter").attr("id","glow");
+filter.append("feGaussianBlur").attr("stdDeviation","3").attr("result","blur");
+filter.append("feMerge").selectAll("feMergeNode").data(["blur","SourceGraphic"])
+  .join("feMergeNode").attr("in", d => d);
+
+// Arrow marker
+defs.append("marker").attr("id","arrowBlue")
+  .attr("markerWidth",10).attr("markerHeight",8)
+  .attr("refX",8).attr("refY",4).attr("orient","auto")
+  .append("polygon").attr("points","0 0, 10 4, 0 8").attr("fill","#63b3ed");
+
+defs.append("marker").attr("id","arrowGreen")
+  .attr("markerWidth",10).attr("markerHeight",8)
+  .attr("refX",8).attr("refY",4).attr("orient","auto")
+  .append("polygon").attr("points","0 0, 10 4, 0 8").attr("fill","#68d391");
+
+defs.append("marker").attr("id","arrowOrange")
+  .attr("markerWidth",10).attr("markerHeight",8)
+  .attr("refX",8).attr("refY",4).attr("orient","auto")
+  .append("polygon").attr("points","0 0, 10 4, 0 8").attr("fill","#f6ad55");
+
+// ─── Title ───────────────────────────────────────────────────────────────
+svg.append("text")
+  .attr("x", 40).attr("y", 30)
+  .style("font","bold 22px system-ui").style("fill","#e2e8f0")
+  .text("Image Diffusion Models: How They Work");
+
+svg.append("text")
+  .attr("x", 40).attr("y", 52)
+  .style("font","13px system-ui").style("fill","#718096")
+  .text("Watch noise get added to an image (forward process) then removed (reverse process) — the core of Stable Diffusion, DALL·E, etc.");
+
+// ─── Layout constants ────────────────────────────────────────────────────
+const imgOriginX = 50;
+const imgOriginY = 80;
+const imgSize = IMG_ROWS * PIXEL_SIZE;  // 256
+
+const filmstripY = imgOriginY + imgSize + 50;
+const filmstripX = 50;
+
+const diagramX = imgOriginX + imgSize + 100;
+const diagramY = 80;
+
+const scheduleChartX = 50;
+const scheduleChartY = filmstripY + 110;
+const scheduleChartW = imgSize + 40;
+const scheduleChartH = 110;
+
+// ─── Draw: Main Image Canvas ────────────────────────────────────────────
+const gImage = svg.append("g")
+  .attr("transform", `translate(${imgOriginX}, ${imgOriginY})`);
+
+// Background
+gImage.append("rect")
+  .attr("width", imgSize + 4).attr("height", imgSize + 4)
+  .attr("x", -2).attr("y", -2)
+  .attr("rx", 4)
+  .attr("fill", "none")
+  .attr("stroke", "#4a5568")
+  .attr("stroke-width", 2);
+
+// Title
+svg.append("text")
+  .attr("x", imgOriginX + imgSize / 2).attr("y", imgOriginY - 8)
+  .attr("text-anchor", "middle")
+  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .text("Current Image State");
+
+const imgLabel = svg.append("text")
+  .attr("x", imgOriginX + imgSize / 2).attr("y", imgOriginY + imgSize + 20)
+  .attr("text-anchor", "middle")
+  .style("font","12px system-ui").style("fill","#a0aec0");
+
+// Pixel cells
+const pixelData = [];
+for (let r = 0; r < IMG_ROWS; r++)
+  for (let c = 0; c < IMG_COLS; c++)
+    pixelData.push({r, c});
+
+const pixels = gImage.selectAll("rect.pixel")
+  .data(pixelData)
+  .join("rect")
+    .attr("class", "pixel")
+    .attr("x", d => d.c * PIXEL_SIZE)
+    .attr("y", d => d.r * PIXEL_SIZE)
+    .attr("width", PIXEL_SIZE)
+    .attr("height", PIXEL_SIZE)
+    .attr("stroke", "#1a1d2e")
+    .attr("stroke-width", 0.5);
+
+function updateMainImage(t) {
+  pixels.attr("fill", d => {
+    const [r, g, b] = getNoisyPixel(d.r, d.c, t);
+    return `rgb(${r},${g},${b})`;
+  });
+
+  const nLvl = noiseLevel(t);
+  const pct = Math.round(nLvl * 100);
+  if (mode === 'forward') {
+    imgLabel.text(`t = ${t}  |  Noise: ${pct}%  |  Adding noise...`);
+  } else {
+    imgLabel.text(`t = ${t}  |  Noise: ${pct}%  |  Denoising...`);
+  }
+}
+
+// ─── Draw: Filmstrip (timeline of snapshots) ─────────────────────────────
+const thumbSize = 48;
+const thumbGap = 8;
+const thumbCount = 9;
+const thumbSteps = Array.from({length: thumbCount}, (_, i) =>
+  Math.round(i * TOTAL_STEPS / (thumbCount - 1))
+);
+
+svg.append("text")
+  .attr("x", filmstripX).attr("y", filmstripY - 10)
+  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .text("Diffusion Timeline — Clean Image → Pure Noise");
+
+const gFilmstrip = svg.append("g")
+  .attr("transform", `translate(${filmstripX}, ${filmstripY})`);
+
+// Direction arrows
+const filmW = thumbCount * (thumbSize + thumbGap);
+
+// Forward arrow
+gFilmstrip.append("line")
+  .attr("x1", 0).attr("y1", -3)
+  .attr("x2", filmW - thumbGap).attr("y2", -3)
+  .attr("stroke", "#f6ad55").attr("stroke-width", 2)
+  .attr("marker-end", "url(#arrowOrange)");
+gFilmstrip.append("text")
+  .attr("x", filmW / 2).attr("y", -10)
+  .attr("text-anchor", "middle")
+  .style("font","10px system-ui").style("fill","#f6ad55")
+  .text("Forward Process: q(xₜ | xₜ₋₁) — Add Noise");
+
+// Reverse arrow
+gFilmstrip.append("line")
+  .attr("x1", filmW - thumbGap).attr("y1", thumbSize + 18)
+  .attr("x2", 0).attr("y2", thumbSize + 18)
+  .attr("stroke", "#68d391").attr("stroke-width", 2)
+  .attr("marker-end", "url(#arrowGreen)");
+gFilmstrip.append("text")
+  .attr("x", filmW / 2).attr("y", thumbSize + 34)
+  .attr("text-anchor", "middle")
+  .style("font","10px system-ui").style("fill","#68d391")
+  .text("Reverse Process: pθ(xₜ₋₁ | xₜ) — Learned Denoising");
+
+// Thumbnails
+const thumbGroups = gFilmstrip.selectAll("g.thumb")
+  .data(thumbSteps)
+  .join("g")
+    .attr("class", "thumb")
+    .attr("transform", (_, i) => `translate(${i * (thumbSize + thumbGap)}, 0)`);
+
+thumbGroups.append("rect")
+  .attr("width", thumbSize).attr("height", thumbSize)
+  .attr("rx", 3)
+  .attr("fill", "#2d3748")
+  .attr("stroke", "#4a5568")
+  .attr("stroke-width", 1);
+
+// Mini pixel rendering in thumbnails
+const miniPixelSize = thumbSize / IMG_ROWS;
+thumbGroups.each(function(t) {
+  const g = d3.select(this);
+  for (let rr = 0; rr < IMG_ROWS; rr += 2) {
+    for (let cc = 0; cc < IMG_COLS; cc += 2) {
+      const [r, gb, b] = getNoisyPixel(rr, cc, t);
+      g.append("rect")
+        .attr("class", "mini-pixel")
+        .attr("x", cc * miniPixelSize)
+        .attr("y", rr * miniPixelSize)
+        .attr("width", miniPixelSize * 2)
+        .attr("height", miniPixelSize * 2)
+        .attr("fill", `rgb(${r},${gb},${b})`);
+    }
+  }
+});
+
+// Labels under thumbnails
+thumbGroups.append("text")
+  .attr("x", thumbSize / 2).attr("y", thumbSize + 12)
+  .attr("text-anchor", "middle")
+  .style("font","9px system-ui").style("fill","#718096")
+  .text(t => `t=${t}`);
+
+// Highlight indicator for current step
+const thumbHighlight = gFilmstrip.append("rect")
+  .attr("width", thumbSize + 4).attr("height", thumbSize + 4)
+  .attr("rx", 4)
+  .attr("fill", "none")
+  .attr("stroke", "#63b3ed")
+  .attr("stroke-width", 2)
+  .attr("x", -2).attr("y", -2)
+  .style("opacity", 0);
+
+function updateFilmstripHighlight(t) {
+  // Find the closest thumbnail
+  let closest = 0, closestDist = Infinity;
+  thumbSteps.forEach((ts, i) => {
+    const d = Math.abs(ts - t);
+    if (d < closestDist) { closestDist = d; closest = i; }
+  });
+  thumbHighlight
+    .attr("x", closest * (thumbSize + thumbGap) - 2)
+    .style("opacity", closestDist <= 2 ? 1 : 0.3);
+}
+
+// ─── Draw: Noise Schedule Chart ──────────────────────────────────────────
+svg.append("text")
+  .attr("x", scheduleChartX).attr("y", scheduleChartY - 10)
+  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .text("Noise Schedule (Cosine)");
+
+const gSchedule = svg.append("g")
+  .attr("transform", `translate(${scheduleChartX}, ${scheduleChartY})`);
+
+// Axes
+gSchedule.append("rect")
+  .attr("width", scheduleChartW).attr("height", scheduleChartH)
+  .attr("fill", "#1a1d2e")
+  .attr("stroke", "#4a5568")
+  .attr("rx", 4);
+
+const scX = d3.scaleLinear().domain([0, TOTAL_STEPS]).range([20, scheduleChartW - 10]);
+const scY = d3.scaleLinear().domain([0, 1]).range([scheduleChartH - 15, 10]);
+
+// Grid lines
+for (let i = 0; i <= 4; i++) {
+  const y = scY(i / 4);
+  gSchedule.append("line")
+    .attr("x1", 20).attr("y1", y)
+    .attr("x2", scheduleChartW - 10).attr("y2", y)
+    .attr("stroke", "#2d3748").attr("stroke-width", 1);
+}
+
+// Noise curve
+const noiseData = Array.from({length: TOTAL_STEPS + 1}, (_, i) => ({t: i, n: noiseLevel(i)}));
+const line = d3.line()
+  .x(d => scX(d.t))
+  .y(d => scY(d.n))
+  .curve(d3.curveCatmullRom);
+
+gSchedule.append("path")
+  .datum(noiseData)
+  .attr("d", line)
+  .attr("fill", "none")
+  .attr("stroke", "#f6ad55")
+  .attr("stroke-width", 2);
+
+// Signal (1-noise) curve
+const signalData = Array.from({length: TOTAL_STEPS + 1}, (_, i) => ({t: i, n: 1 - noiseLevel(i)}));
+gSchedule.append("path")
+  .datum(signalData)
+  .attr("d", line)
+  .attr("fill", "none")
+  .attr("stroke", "#63b3ed")
+  .attr("stroke-width", 2);
+
+// Legend
+gSchedule.append("circle").attr("cx", scheduleChartW - 100).attr("cy", 18).attr("r", 4).attr("fill", "#f6ad55");
+gSchedule.append("text").attr("x", scheduleChartW - 92).attr("y", 22)
+  .style("font","10px system-ui").style("fill","#f6ad55").text("Noise");
+gSchedule.append("circle").attr("cx", scheduleChartW - 100).attr("cy", 34).attr("r", 4).attr("fill", "#63b3ed");
+gSchedule.append("text").attr("x", scheduleChartW - 92).attr("y", 38)
+  .style("font","10px system-ui").style("fill","#63b3ed").text("Signal");
+
+// Labels
+gSchedule.append("text").attr("x", scheduleChartW / 2).attr("y", scheduleChartH + 2)
+  .attr("text-anchor", "middle").style("font","10px system-ui").style("fill","#718096").text("Timestep t →");
+gSchedule.append("text").attr("x", 8).attr("y", 14)
+  .style("font","9px system-ui").style("fill","#718096").text("1.0");
+gSchedule.append("text").attr("x", 12).attr("y", scheduleChartH - 8)
+  .style("font","9px system-ui").style("fill","#718096").text("0");
+
+// Current step indicator on chart
+const stepIndicator = gSchedule.append("line")
+  .attr("y1", 5).attr("y2", scheduleChartH - 5)
+  .attr("stroke", "#e2e8f0")
+  .attr("stroke-width", 1.5)
+  .attr("stroke-dasharray", "4,3");
+
+const stepDot = gSchedule.append("circle")
+  .attr("r", 5)
+  .attr("fill", "#e2e8f0")
+  .attr("filter", "url(#glow)");
+
+function updateScheduleIndicator(t) {
+  const x = scX(t);
+  const y = scY(noiseLevel(t));
+  stepIndicator.attr("x1", x).attr("x2", x);
+  stepDot.attr("cx", x).attr("cy", y);
+}
+
+// ─── Draw: Process Diagram (right side) ──────────────────────────────────
+const gDiagram = svg.append("g")
+  .attr("transform", `translate(${diagramX}, ${diagramY})`);
+
+const diagW = W - diagramX - 40;
+const diagH = H - diagramY - 30;
+
+gDiagram.append("text")
+  .attr("x", 0).attr("y", 0)
+  .style("font","bold 14px system-ui").style("fill","#e2e8f0")
+  .text("How Diffusion Works");
+
+// ── The big picture boxes ──
+const boxW = diagW - 20;
+const boxData = [
+  {
+    y: 20, h: 155, title: "1. Forward Process (Training Data Prep)",
+    color: "#f6ad55", bg: "#2a2520",
+    lines: [
+      "Take a real image x₀ from the training set.",
+      "Gradually add Gaussian noise over T steps.",
+      "At each step t, mix the image with random noise:",
+      "   xₜ = √ᾱₜ · x₀  +  √(1 − ᾱₜ) · ε",
+      "By t = T, the image is pure random noise.",
+      "This is NOT learned — it's just math."
+    ]
+  },
+  {
+    y: 190, h: 180, title: "2. Training the Neural Network (U-Net)",
+    color: "#63b3ed", bg: "#1e2535",
+    lines: [
+      "The network εθ learns to PREDICT the noise.",
+      "Input: noisy image xₜ + timestep t",
+      "Output: predicted noise ε̂",
+      "Loss:  L = ‖ ε − εθ(xₜ, t) ‖²",
+      "Train until the network can accurately",
+      "  identify what noise was added at any step.",
+      "The U-Net uses skip connections + attention."
+    ]
+  },
+  {
+    y: 385, h: 165, title: "3. Reverse Process (Generating New Images!)",
+    color: "#68d391", bg: "#1e2920",
+    lines: [
+      "Start from pure random noise xT ~ N(0, I).",
+      "For t = T down to 1:",
+      "  1. Network predicts the noise: ε̂ = εθ(xₜ, t)",
+      "  2. Subtract predicted noise to get xₜ₋₁",
+      "  3. Add a tiny bit of fresh noise (stochastic)",
+      "After T steps: a brand-new realistic image!"
+    ]
+  },
+  {
+    y: 565, h: 120, title: "4. Guidance & Conditioning (Text → Image)",
+    color: "#d6bcfa", bg: "#25202e",
+    lines: [
+      "Text prompt → CLIP encoder → embedding vector",
+      "Embedding is fed to U-Net via cross-attention.",
+      "Classifier-free guidance amplifies the text signal:",
+      "  ε̂ = εuncond + s · (εcond − εuncond)",
+      "Higher guidance scale s → more faithful to prompt."
+    ]
+  }
+];
+
+boxData.forEach(box => {
+  const g = gDiagram.append("g").attr("transform", `translate(0, ${box.y})`);
+
+  g.append("rect")
+    .attr("width", boxW).attr("height", box.h)
+    .attr("rx", 8)
+    .attr("fill", box.bg)
+    .attr("stroke", box.color)
+    .attr("stroke-width", 1.5)
+    .attr("opacity", 0.9);
+
+  g.append("text")
+    .attr("x", 12).attr("y", 22)
+    .style("font","bold 13px system-ui").style("fill", box.color)
+    .text(box.title);
+
+  box.lines.forEach((line, i) => {
+    g.append("text")
+      .attr("x", 16).attr("y", 42 + i * 17)
+      .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#cbd5e0")
+      .text(line);
+  });
+});
+
+// Connecting arrows between boxes
+const arrowPairs = [
+  {from: boxData[0], to: boxData[1], color: "#63b3ed"},
+  {from: boxData[1], to: boxData[2], color: "#68d391"},
+  {from: boxData[2], to: boxData[3], color: "#d6bcfa"},
+];
+
+arrowPairs.forEach(({from, to, color}) => {
+  const x = boxW / 2;
+  const y1 = from.y + from.h + 2;
+  const y2 = to.y - 2;
+  gDiagram.append("line")
+    .attr("x1", x).attr("y1", y1)
+    .attr("x2", x).attr("y2", y2)
+    .attr("stroke", color).attr("stroke-width", 2)
+    .attr("marker-end", `url(#arrow${color === '#63b3ed' ? 'Blue' : color === '#68d391' ? 'Green' : 'Orange'})`);
+});
+
+// ── Active step highlight on diagram ──
+const diagHighlight = gDiagram.append("rect")
+  .attr("width", boxW + 6).attr("height", 0)
+  .attr("x", -3)
+  .attr("rx", 10)
+  .attr("fill", "none")
+  .attr("stroke", "#e2e8f0")
+  .attr("stroke-width", 2)
+  .attr("stroke-dasharray", "6,4")
+  .style("opacity", 0.7);
+
+function updateDiagramHighlight() {
+  let box;
+  if (mode === 'forward') {
+    box = boxData[0];
+  } else {
+    box = boxData[2];
+  }
+  diagHighlight
+    .attr("y", box.y - 3)
+    .attr("height", box.h + 6);
+}
+
+// ─── Draw: Denoising Step Detail (below schedule chart, shows math) ──────
+const mathX = scheduleChartX;
+const mathY = scheduleChartY + scheduleChartH + 30;
+
+svg.append("text")
+  .attr("x", mathX).attr("y", mathY)
+  .style("font","bold 13px system-ui").style("fill","#a0aec0")
+  .text("What's Happening Right Now");
+
+const gMath = svg.append("g").attr("transform", `translate(${mathX}, ${mathY + 15})`);
+
+gMath.append("rect")
+  .attr("width", scheduleChartW).attr("height", 90)
+  .attr("rx", 6)
+  .attr("fill", "#1e2535")
+  .attr("stroke", "#4a5568");
+
+const mathLines = [
+  gMath.append("text").attr("x", 12).attr("y", 22)
+    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#e2e8f0"),
+  gMath.append("text").attr("x", 12).attr("y", 42)
+    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#cbd5e0"),
+  gMath.append("text").attr("x", 12).attr("y", 62)
+    .style("font","12px 'SF Mono', Consolas, monospace").style("fill","#cbd5e0"),
+  gMath.append("text").attr("x", 12).attr("y", 82)
+    .style("font","11px system-ui").style("fill","#718096"),
+];
+
+function updateMathDisplay(t) {
+  const n = noiseLevel(t);
+  const s = 1 - n;
+  if (mode === 'forward') {
+    mathLines[0].text(`Forward step t = ${t}`).style("fill","#f6ad55");
+    mathLines[1].text(`xₜ = √${s.toFixed(3)} · x₀ + √${n.toFixed(3)} · ε`);
+    mathLines[2].text(`Signal weight: ${(Math.sqrt(s)*100).toFixed(1)}%  |  Noise weight: ${(Math.sqrt(n)*100).toFixed(1)}%`);
+    mathLines[3].text(t === 0 ? "Clean image — no noise added yet." :
+      t >= TOTAL_STEPS ? "Pure noise — original image completely destroyed." :
+      "Mixing original image with random Gaussian noise.");
+  } else {
+    mathLines[0].text(`Reverse step t = ${t}`).style("fill","#68d391");
+    mathLines[1].text(`ε̂ = εθ(xₜ, t)  →  predict the noise`);
+    mathLines[2].text(`xₜ₋₁ = (xₜ − √(1−ᾱₜ)·ε̂) / √ᾱₜ  +  σₜ·z`);
+    mathLines[3].text(t <= 0 ? "Done! Clean image fully reconstructed." :
+      t >= TOTAL_STEPS ? "Starting from pure random noise." :
+      "U-Net predicts noise, we subtract it, add a tiny bit of fresh noise.");
+  }
+}
+
+// ─── Draw: Legend / Key concept icons below main image ───────────────────
+const keyY = mathY + 120;
+const gKey = svg.append("g").attr("transform", `translate(${mathX}, ${keyY})`);
+
+const keyConcepts = [
+  {icon: "🎲", label: "ε — Random Gaussian noise", color: "#f6ad55"},
+  {icon: "🧠", label: "εθ — Neural network (U-Net)", color: "#63b3ed"},
+  {icon: "📉", label: "ᾱₜ — Cumulative noise schedule", color: "#d6bcfa"},
+  {icon: "🖼️", label: "x₀ — Original clean image", color: "#68d391"},
+];
+
+keyConcepts.forEach((item, i) => {
+  gKey.append("text")
+    .attr("x", 0).attr("y", i * 22)
+    .style("font","14px system-ui")
+    .text(item.icon);
+  gKey.append("text")
+    .attr("x", 24).attr("y", i * 22)
+    .style("font","12px system-ui").style("fill", item.color)
+    .text(item.label);
+});
+
+// ─── Draw: Guidance Scale Demo (Step 4 visualization) ────────────────────
+const guidanceY = keyY + 110;
+const guidanceX = 50;
+
+svg.append("text")
+  .attr("x", guidanceX).attr("y", guidanceY)
+  .style("font","bold 14px system-ui").style("fill","#d6bcfa")
+  .text("Step 4 Demo: Classifier-Free Guidance Scale");
+
+svg.append("text")
+  .attr("x", guidanceX).attr("y", guidanceY + 18)
+  .style("font","12px system-ui").style("fill","#718096")
+  .text("Same noise, same prompt — only the guidance scale s changes. Higher s → image follows the text prompt more closely.");
+
+const gGuidance = svg.append("g")
+  .attr("transform", `translate(${guidanceX}, ${guidanceY + 30})`);
+
+// Guidance scale values to show
+const guidanceScales = [0, 1, 3, 7.5, 15, 25];
+const guidanceLabels = ["s=0\nNo guidance", "s=1\nMinimal", "s=3\nSubtle", "s=7.5\nDefault", "s=15\nStrong", "s=25\nOvercooked"];
+const guidanceSize = 64;
+const guidanceGap = 18;
+
+// Fixed noise seed for guidance demo (so all images share same noise)
+let guidanceNoise = [];
+function regenerateGuidanceNoise() {
+  guidanceNoise = Array.from({length: IMG_ROWS}, () =>
+    Array.from({length: IMG_COLS}, () => [
+      Math.random() * 255,
+      Math.random() * 255,
+      Math.random() * 255
+    ])
+  );
+}
+regenerateGuidanceNoise();
+
+// Simulate what guidance scale does visually:
+// s=0: output is basically random (noise colors)
+// s=1-3: blurry mix of target + noise
+// s=7.5: good reproduction of target
+// s=15: over-sharpened, saturated target
+// s=25: extreme contrast, artifacts
+function getGuidedPixel(r, c, s) {
+  const target = cleanImage[r][c];
+  const noise = guidanceNoise[r][c];
+  
+  if (s === 0) {
+    // Unconditional: mostly noise with faint structure
+    return [
+      Math.round(noise[0] * 0.7 + 128 * 0.3),
+      Math.round(noise[1] * 0.7 + 128 * 0.3),
+      Math.round(noise[2] * 0.7 + 128 * 0.3),
+    ];
+  }
+  
+  // Blend factor: how much the target image shows through
+  // Follows a curve: low s → noisy, s~7.5 → clean, s>15 → over-saturated
+  const blend = Math.min(1, s / 10); // 0 to 1 for s=0..10
+  const oversat = Math.max(0, (s - 10) / 15); // 0 to 1 for s=10..25
+  
+  // Noise residual decreases with guidance
+  const noiseAmount = Math.max(0, 1 - blend) * 0.6;
+  
+  let pr = target[0] * blend + noise[0] * noiseAmount + 128 * (1 - blend - noiseAmount);
+  let pg = target[1] * blend + noise[1] * noiseAmount + 128 * (1 - blend - noiseAmount);
+  let pb = target[2] * blend + noise[2] * noiseAmount + 128 * (1 - blend - noiseAmount);
+  
+  // Over-saturation: push colors away from mid-gray
+  if (oversat > 0) {
+    pr = 128 + (pr - 128) * (1 + oversat * 1.8);
+    pg = 128 + (pg - 128) * (1 + oversat * 1.8);
+    pb = 128 + (pb - 128) * (1 + oversat * 1.8);
+    // Add blocky artifacts at very high guidance
+    if (s >= 20) {
+      const artifact = ((r * 7 + c * 13) % 5 === 0) ? (s - 18) * 8 : 0;
+      pr += artifact; pg -= artifact * 0.5; pb -= artifact * 0.3;
+    }
+  }
+  
+  return [
+    Math.round(Math.max(0, Math.min(255, pr))),
+    Math.round(Math.max(0, Math.min(255, pg))),
+    Math.round(Math.max(0, Math.min(255, pb))),
+  ];
+}
+
+// Draw the 6 comparison images
+const gMiniPixelSize = guidanceSize / IMG_ROWS;
+const guidanceGroups = gGuidance.selectAll("g.guide-img")
+  .data(guidanceScales)
+  .join("g")
+    .attr("class", "guide-img")
+    .attr("transform", (_, i) => `translate(${i * (guidanceSize + guidanceGap + 40)}, 0)`);
+
+// Border rects
+guidanceGroups.append("rect")
+  .attr("width", guidanceSize + 2).attr("height", guidanceSize + 2)
+  .attr("x", -1).attr("y", -1)
+  .attr("rx", 4)
+  .attr("fill", "none")
+  .attr("stroke", (_, i) => i === 3 ? "#d6bcfa" : "#4a5568")
+  .attr("stroke-width", (_, i) => i === 3 ? 2 : 1);
+
+// "Default" label on s=7.5
+guidanceGroups.filter((_, i) => i === 3).append("text")
+  .attr("x", guidanceSize / 2).attr("y", -8)
+  .attr("text-anchor", "middle")
+  .style("font","bold 9px system-ui").style("fill","#d6bcfa")
+  .text("★ DEFAULT");
+
+// Render pixels for each guidance image
+function updateGuidanceImages() {
+  guidanceGroups.selectAll(".guide-pixel").remove();
+  guidanceGroups.each(function(s) {
+    const g = d3.select(this);
+    for (let rr = 0; rr < IMG_ROWS; rr += 2) {
+      for (let cc = 0; cc < IMG_COLS; cc += 2) {
+        const [r, gb, b] = getGuidedPixel(rr, cc, s);
+        g.append("rect")
+          .attr("class", "guide-pixel")
+          .attr("x", cc * gMiniPixelSize)
+          .attr("y", rr * gMiniPixelSize)
+          .attr("width", gMiniPixelSize * 2)
+          .attr("height", gMiniPixelSize * 2)
+          .attr("fill", `rgb(${r},${gb},${b})`);
+      }
+    }
+  });
+}
+
+// Labels
+guidanceGroups.each(function(s, i) {
+  const g = d3.select(this);
+  const parts = guidanceLabels[i].split("\n");
+  g.append("text")
+    .attr("x", guidanceSize / 2).attr("y", guidanceSize + 14)
+    .attr("text-anchor", "middle")
+    .style("font","bold 11px system-ui")
+    .style("fill", s === 7.5 ? "#d6bcfa" : "#a0aec0")
+    .text(parts[0]);
+  g.append("text")
+    .attr("x", guidanceSize / 2).attr("y", guidanceSize + 27)
+    .attr("text-anchor", "middle")
+    .style("font","10px system-ui")
+    .style("fill", s <= 1 ? "#718096" : s <= 10 ? "#68d391" : s <= 15 ? "#f6ad55" : "#fc8181")
+    .text(parts[1]);
+});
+
+// Quality indicator bar under each
+const qualityColors = ["#718096", "#a0aec0", "#68d391", "#48bb78", "#f6ad55", "#fc8181"];
+const qualityWidths = [0.15, 0.3, 0.6, 1.0, 0.75, 0.35]; // relative quality
+guidanceGroups.each(function(s, i) {
+  const g = d3.select(this);
+  // Background bar
+  g.append("rect")
+    .attr("x", 0).attr("y", guidanceSize + 34)
+    .attr("width", guidanceSize).attr("height", 4)
+    .attr("rx", 2)
+    .attr("fill", "#2d3748");
+  // Fill bar
+  g.append("rect")
+    .attr("x", 0).attr("y", guidanceSize + 34)
+    .attr("width", guidanceSize * qualityWidths[i]).attr("height", 4)
+    .attr("rx", 2)
+    .attr("fill", qualityColors[i]);
+});
+
+// Quality label
+gGuidance.append("text")
+  .attr("x", 0).attr("y", guidanceSize + 50)
+  .style("font","9px system-ui").style("fill","#718096")
+  .text("Quality →");
+
+// Interactive guidance preview (right side, shows a larger image at the currently selected guidance scale)
+const guidePrevX = guidanceScales.length * (guidanceSize + guidanceGap + 40) + 30;
+const guidePrevSize = guidanceSize * 1.5;
+
+const gGuidePrev = gGuidance.append("g")
+  .attr("transform", `translate(${guidePrevX}, -10)`);
+
+gGuidePrev.append("text")
+  .attr("x", guidePrevSize / 2).attr("y", -5)
+  .attr("text-anchor", "middle")
+  .style("font","bold 12px system-ui").style("fill","#d6bcfa")
+  .text("Your Guidance Scale");
+
+gGuidePrev.append("rect")
+  .attr("width", guidePrevSize + 2).attr("height", guidePrevSize + 2)
+  .attr("x", -1).attr("y", -1)
+  .attr("rx", 6)
+  .attr("fill", "none")
+  .attr("stroke", "#d6bcfa")
+  .attr("stroke-width", 2);
+
+const guidePrevPixelSize = guidePrevSize / IMG_ROWS;
+let currentGuidanceScale = 7;
+
+function updateGuidancePreview() {
+  gGuidePrev.selectAll(".gprev-pixel").remove();
+  for (let rr = 0; rr < IMG_ROWS; rr++) {
+    for (let cc = 0; cc < IMG_COLS; cc++) {
+      const [r, g, b] = getGuidedPixel(rr, cc, currentGuidanceScale);
+      gGuidePrev.append("rect")
+        .attr("class", "gprev-pixel")
+        .attr("x", cc * guidePrevPixelSize)
+        .attr("y", rr * guidePrevPixelSize)
+        .attr("width", guidePrevPixelSize)
+        .attr("height", guidePrevPixelSize)
+        .attr("fill", `rgb(${r},${g},${b})`);
+    }
+  }
+}
+
+const guidePrevLabel = gGuidePrev.append("text")
+  .attr("x", guidePrevSize / 2).attr("y", guidePrevSize + 18)
+  .attr("text-anchor", "middle")
+  .style("font","bold 12px system-ui").style("fill","#d6bcfa");
+
+const guidePrevDesc = gGuidePrev.append("text")
+  .attr("x", guidePrevSize / 2).attr("y", guidePrevSize + 34)
+  .attr("text-anchor", "middle")
+  .style("font","11px system-ui").style("fill","#718096");
+
+function getGuidanceDescription(s) {
+  if (s === 0) return "No conditioning — pure imagination";
+  if (s <= 1) return "Almost ignoring the prompt";
+  if (s <= 3) return "Loosely following the prompt";
+  if (s <= 5) return "Moderate prompt adherence";
+  if (s <= 9) return "Good balance of quality & fidelity";
+  if (s <= 12) return "Strong prompt following";
+  if (s <= 18) return "Over-saturated, losing detail";
+  return "Too high — artifacts appear!";
+}
+
+function updateGuidanceUI() {
+  guidePrevLabel.text(`s = ${currentGuidanceScale}`);
+  guidePrevDesc.text(getGuidanceDescription(currentGuidanceScale));
+  d3.select("#guidance-badge").text(`s = ${currentGuidanceScale.toFixed(1)}`);
+  updateGuidancePreview();
+}
+
+d3.select("#guidance-slider").on("input", function() {
+  currentGuidanceScale = +this.value;
+  updateGuidanceUI();
+});
+
+// Equation display for guidance
+const gGuideEq = gGuidance.append("g")
+  .attr("transform", `translate(${guidePrevX}, ${guidePrevSize + 45})`);
+
+gGuideEq.append("rect")
+  .attr("width", guidePrevSize + 20).attr("height", 52)
+  .attr("x", -10).attr("rx", 6)
+  .attr("fill", "#25202e")
+  .attr("stroke", "#d6bcfa")
+  .attr("stroke-width", 1)
+  .attr("opacity", 0.6);
+
+gGuideEq.append("text")
+  .attr("x", guidePrevSize / 2).attr("y", 18)
+  .attr("text-anchor", "middle")
+  .style("font","11px 'SF Mono', Consolas, monospace").style("fill","#d6bcfa")
+  .text("ε̂ = εuncond + s·(εcond − εuncond)");
+
+gGuideEq.append("text")
+  .attr("x", guidePrevSize / 2).attr("y", 38)
+  .attr("text-anchor", "middle")
+  .style("font","10px system-ui").style("fill","#a0aec0")
+  .text("↑ Drag the slider to change s");
+
+// Initial render of guidance demo
+updateGuidanceImages();
+updateGuidanceUI();
+
+// ─── Animation Loop ──────────────────────────────────────────────────────
+function tick() {
+  if (!running) return;
+
+  tickCounter++;
+  const delay = 11 - speed;
+  if (tickCounter % delay !== 0) return;
+
+  if (mode === 'forward') {
+    if (currentStep < TOTAL_STEPS) {
+      currentStep++;
+    } else {
+      // Auto-switch to reverse
+      mode = 'reverse';
+      updateModeButtons();
+    }
+  } else {
+    if (currentStep > 0) {
+      currentStep--;
+    } else {
+      // Auto-switch to forward with possible new noise
+      mode = 'forward';
+      regenerateNoise();
+      updateModeButtons();
+    }
+  }
+
+  updateAll();
+}
+
+function updateAll() {
+  updateMainImage(currentStep);
+  updateFilmstripHighlight(currentStep);
+  updateScheduleIndicator(currentStep);
+  updateMathDisplay(currentStep);
+  updateDiagramHighlight();
+  d3.select("#step-badge").text(`t = ${currentStep} / ${TOTAL_STEPS}`);
+  d3.select("#mode-badge")
+    .text(mode === 'forward' ? 'Forward Process' : 'Reverse Process')
+    .style("color", mode === 'forward' ? '#f6ad55' : '#68d391');
+}
+
+// ─── Controls ────────────────────────────────────────────────────────────
+function updateModeButtons() {
+  d3.select("#btn-forward").classed("active", mode === 'forward');
+  d3.select("#btn-reverse").classed("active", mode === 'reverse');
+}
+
+d3.select("#btn-forward").on("click", () => {
+  mode = 'forward';
+  currentStep = 0;
+  running = true;
+  updateModeButtons();
+  updateAll();
+});
+
+d3.select("#btn-reverse").on("click", () => {
+  mode = 'reverse';
+  currentStep = TOTAL_STEPS;
+  running = true;
+  updateModeButtons();
+  updateAll();
+});
+
+d3.select("#btn-pause").on("click", () => {
+  running = !running;
+  d3.select("#btn-pause").text(running ? "⏸ Pause" : "▶ Resume");
+});
+
+d3.select("#btn-reset").on("click", () => {
+  currentStep = 0;
+  mode = 'forward';
+  running = true;
+  regenerateNoise();
+  updateModeButtons();
+  d3.select("#btn-pause").text("⏸ Pause");
+  updateAll();
+});
+
+d3.select("#btn-sample").on("click", () => {
+  currentImageIdx = (currentImageIdx + 1) % IMAGES.length;
+  cleanImage = IMAGES[currentImageIdx];
+  currentStep = 0;
+  mode = 'forward';
+  running = true;
+  regenerateNoise();
+  regenerateGuidanceNoise();
+  updateModeButtons();
+  // Re-render filmstrip thumbnails
+  updateFilmstripThumbnails();
+  updateGuidanceImages();
+  updateGuidanceUI();
+  updateAll();
+});
+
+d3.select("#speed-slider").on("input", function() {
+  speed = +this.value;
+});
+
+function updateFilmstripThumbnails() {
+  thumbGroups.selectAll(".mini-pixel").remove();
+  thumbGroups.each(function(t) {
+    const g = d3.select(this);
+    for (let rr = 0; rr < IMG_ROWS; rr += 2) {
+      for (let cc = 0; cc < IMG_COLS; cc += 2) {
+        const [r, gb, b] = getNoisyPixel(rr, cc, t);
+        g.append("rect")
+          .attr("class", "mini-pixel")
+          .attr("x", cc * miniPixelSize)
+          .attr("y", rr * miniPixelSize)
+          .attr("width", miniPixelSize * 2)
+          .attr("height", miniPixelSize * 2)
+          .attr("fill", `rgb(${r},${gb},${b})`);
+      }
+    }
+  });
+}
+
+// ─── Initial render + start animation ────────────────────────────────────
+updateAll();
+d3.interval(tick, 50);
+
+</script>
+</body>
+</html>

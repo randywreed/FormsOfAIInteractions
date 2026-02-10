@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>D3 Visualizations</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0f1117;
+    color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 60px 20px;
+  }
+  .container {
+    max-width: 900px;
+    width: 100%;
+  }
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #63b3ed, #68d391);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    color: #718096;
+    font-size: 1rem;
+    margin-bottom: 48px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 24px;
+  }
+  a.card {
+    display: block;
+    text-decoration: none;
+    background: #1a1d2e;
+    border: 1px solid #2d3748;
+    border-radius: 12px;
+    padding: 28px 24px;
+    transition: transform 0.2s, border-color 0.3s, box-shadow 0.3s;
+  }
+  a.card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+  .card-icon {
+    font-size: 2rem;
+    margin-bottom: 14px;
+    display: block;
+  }
+  .card-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .card-desc {
+    font-size: 0.88rem;
+    color: #a0aec0;
+    line-height: 1.5;
+  }
+  .card-tag {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 0.72rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.06);
+    color: #718096;
+  }
+  footer {
+    margin-top: 60px;
+    text-align: center;
+    color: #4a5568;
+    font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Interactive AI Visualizations</h1>
+  <p class="subtitle">Explorable explanations of machine learning concepts, built with D3.js</p>
+
+  <div class="grid">
+
+    <a class="card" href="reinforcement_learning.html" style="--accent: #68d391;">
+      <span class="card-icon">🤖</span>
+      <div class="card-title">Reinforcement Learning</div>
+      <div class="card-desc">Watch a Q-learning agent navigate a grid world, avoid fire pits, and find the goal through trial and error.</div>
+      <span class="card-tag">Q-Learning · Grid World</span>
+    </a>
+
+    <a class="card" href="image_diffusion.html" style="--accent: #63b3ed;">
+      <span class="card-icon">🎨</span>
+      <div class="card-title">Image Diffusion</div>
+      <div class="card-desc">See how diffusion models add and remove noise, with an interactive noise schedule, guidance scale demo, and step-by-step walkthrough.</div>
+      <span class="card-tag">Forward &amp; Reverse Process · CFG</span>
+    </a>
+
+    <a class="card" href="diffusion_inference.html" style="--accent: #d6bcfa;">
+      <span class="card-icon">🖼️</span>
+      <div class="card-title">Diffusion Inference Pipeline</div>
+      <div class="card-desc">Follow a text prompt through every stage of Stable Diffusion — tokenizer, CLIP, U-Net denoising loop, VAE decoder — to produce an image.</div>
+      <span class="card-tag">Stable Diffusion · End-to-End</span>
+    </a>
+
+    <a class="card" href="Inside_the_model.html" style="--accent: #f6ad55;">
+      <span class="card-icon">🧠</span>
+      <div class="card-title">Inside the Model</div>
+      <div class="card-desc">Peek inside a neural network to see how layers, weights, and activations transform input into output.</div>
+      <span class="card-tag">Neural Network Internals</span>
+    </a>
+
+    <a class="card" href="llm_pretraining.html" style="--accent: #fc8181;">
+      <span class="card-icon">📚</span>
+      <div class="card-title">LLM Pre-training</div>
+      <div class="card-desc">Visualize how a large language model learns from text during pre-training — tokenization, embeddings, attention, and next-token prediction.</div>
+      <span class="card-tag">Transformers · Pre-training</span>
+    </a>
+
+  </div>
+
+  <footer>Built with D3.js v7 · All visualizations run entirely in your browser</footer>
+</div>
+</body>
+</html>

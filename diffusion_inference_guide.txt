@@ -1,0 +1,373 @@
+HOW IMAGE DIFFUSION MODELS GENERATE PICTURES
+A Plain-English Guide for the Visualization
+=============================================
+
+WHAT YOU'RE WATCHING
+--------------------
+You're watching a computer turn a sentence — like "a red heart on dark
+background" — into a brand-new image, pixel by pixel. Nobody drew the
+image ahead of time. The machine generates it from scratch, guided only
+by the words you gave it.
+
+This is the technology behind tools like DALL·E, Midjourney, and Stable
+Diffusion. The visualization walks you through every stage of the process
+so you can see what's actually happening inside the machine.
+
+
+THE BIG IDEA (30-SECOND VERSION)
+---------------------------------
+Imagine you have a photograph and you slowly pour static noise over it —
+like bad TV reception — until the photo is completely unrecognizable.
+Now imagine you could train a computer to reverse that process: hand it
+pure static, and have it gradually remove the noise until a clear picture
+appears.
+
+That's diffusion in a nutshell.
+
+During training, the model sees millions of images being progressively
+destroyed by noise, and it learns to undo each tiny step of destruction.
+At generation time, you hand it random static and say "clean this up into
+a picture of a red heart," and it does — one small de-noising step at a
+time.
+
+
+THE PIPELINE (THE ROW OF BOXES AT THE TOP)
+-------------------------------------------
+The visualization shows the inference pipeline — the assembly line that
+runs every time you ask the model to make a picture. Each box is one
+stage, and data flows left to right through them:
+
+  1. Text Prompt  ──→  2. Tokenizer  ──→  3. Text Encoder  ──→
+       ↓ (cross-attention)
+  4. Sample Noise  ──→  5. U-Net + Scheduler  ──→
+  6. Clean Latent  ──→  7. VAE Decoder  ──→  8. Output Image
+
+Let's walk through each one.
+
+
+STAGE 1: TEXT PROMPT
+--------------------
+This is just your sentence —"a red heart on dark background." It's the
+instruction the model will follow. In the visualization, you can see the
+prompt displayed inside the first box.
+
+Think of it like placing an order at a restaurant: you're telling the
+kitchen (the model) what dish (image) you'd like.
+
+
+STAGE 2: TOKENIZER
+-------------------
+Computers can't read English the way you do. Before the sentence can go
+any further, it needs to be chopped up into small pieces the machine can
+work with. The Tokenizer does this using a method called BPE (Byte-Pair
+Encoding).
+
+What BPE does is split words into sub-word chunks. Common words stay
+whole ("heart"), but uncommon or long words get broken into smaller
+pieces ("back" + "ground"). Each piece gets a number — a token ID.
+
+When the visualization runs, you'll see the prompt broken into colored
+boxes, each showing a token and its ID. For example:
+
+    "a"  →  320
+    "red"  →  2872
+    "heart"  →  4106
+    "on"  →  373
+    "dark"  →  3223
+    "back"  →  1549
+    "ground"  →  2598
+
+Why bother? Because a neural network only understands numbers, not
+letters. The token IDs are the numbers it actually reads.
+
+
+STAGE 3: TEXT ENCODER (CLIP / T5)
+----------------------------------
+Now the machine has a list of token IDs. The Text Encoder turns each one
+into a dense vector — a long list of 768 numbers that captures the
+meaning of that token and its relationship to the tokens around it.
+
+In the visualization, this shows up as a colorful heatmap: each row is
+one token, each column is one of those 768 dimensions. The colors
+represent the magnitude of each number in the vector.
+
+Think of it like translation. You started with English words. The
+tokenizer turned them into simple ID numbers. Now the text encoder turns
+those IDs into a rich, multi-dimensional representation of what the words
+actually mean. "Red" isn't just the number 2872 anymore — it's a cloud
+of 768 values encoding color, warmth, intensity, and how "red" relates
+to "heart" in this particular sentence.
+
+This process is powered by CLIP (Contrastive Language-Image Pre-training),
+a model trained on hundreds of millions of image-text pairs from the
+internet. CLIP has learned to create representations where images and
+their text descriptions live close together in the same mathematical
+space. That's why it can bridge the gap between language and pixels.
+
+
+STAGE 4: SAMPLE NOISE
+----------------------
+While the text encoder was working on understanding your words, the model
+also needs a starting canvas. But instead of a blank white page, it
+starts with pure random noise — like TV static.
+
+Mathematically, this is a sample from a Gaussian (normal) distribution
+with mean 0 and variance 1, written as z_T ~ N(0, I). Don't worry about
+the notation; it just means "random numbers drawn from a bell curve."
+
+Why start with noise? Because the diffusion model was specifically
+trained to turn noise into images. Every generation begins from a
+different random starting point, which is one reason you get a different
+image each time you run the same prompt.
+
+The noise lives in "latent space" — a compressed representation that is
+much smaller than the final image. Instead of working at full
+512 × 512 × 3 (about 786,000 numbers), the model works at 64 × 64 × 4
+(about 16,000 numbers). This is why diffusion models can run on a
+regular GPU instead of needing a supercomputer.
+
+
+STAGE 5: U-NET + SCHEDULER (THE DENOISING LOOP)
+-------------------------------------------------
+This is the heart of the whole process. The U-Net and Scheduler work
+together in a loop, gradually cleaning the noise into a coherent image.
+
+  The U-Net:
+  ----------
+  The U-Net is a neural network shaped like the letter U. On the left
+  side, it compresses the noisy image into a smaller and smaller
+  representation (the "encoder" side). At the bottom of the U, it has
+  attention layers that look at the big picture. On the right side, it
+  expands back up to the original size (the "decoder" side).
+
+  Here's the key trick: skip connections link each layer on the left to
+  its matching layer on the right. This lets the network keep fine
+  details (like edges and textures) that would otherwise be lost during
+  compression. In the visualization, you can see these as dashed purple
+  lines arching over the U shape.
+
+  The U-Net has two critical inputs besides the noisy image:
+    • Text embeddings (from Stage 3) — These are injected via
+      "cross-attention," which is how the network knows what you asked
+      for. At every layer, the U-Net checks: "Does what I'm generating
+      match the description 'red heart on dark background'?"
+    • Timestep — A number telling the network how noisy the image
+      currently is. Early steps have lots of noise; late steps have
+      almost none. The network adjusts its behavior accordingly.
+
+  The U-Net's job is to predict the noise in the current image. Once it
+  has that prediction, the scheduler can subtract it out.
+
+  The Scheduler:
+  --------------
+  The Scheduler decides how to use the U-Net's noise prediction to take
+  one step closer to a clean image. Different schedulers take different
+  approaches:
+
+    • DDPM (50 steps)    — The original method. Takes many small, careful
+                           steps. Very stable but slow.
+    • DDIM (20 steps)    — A shortcut that skips some steps. Faster, with
+                           minimal quality loss.
+    • Euler (20 steps)   — A simple, efficient method based on ordinary
+                           differential equations.
+    • DPM++ 2M (15 steps) — A newer method that gets good results in
+                           very few steps.
+
+  The visualization shows a bar chart comparing these schedulers so you
+  can see the trade-off: fewer steps means faster generation, but you
+  need a smart scheduler to maintain quality.
+
+  Classifier-Free Guidance (CFG):
+  --------------------------------
+  You'll notice a "Guidance" slider in the controls. This controls the
+  CFG scale, which determines how strongly the model follows your prompt.
+
+  Here's how it works: at each step, the U-Net actually runs twice — once
+  with your text description and once without (unconditional). Then it
+  computes the difference between the two predictions and amplifies it:
+
+    final prediction = unconditional + CFG × (conditional - unconditional)
+
+  • CFG = 1  →  The model barely follows your prompt. You get a plausible
+                 image, but it might not match your description.
+  • CFG = 7  →  A good balance. The image clearly matches the prompt.
+  • CFG = 20 →  The model follows the prompt aggressively. Colors become
+                 oversaturated and details get exaggerated.
+
+  Think of CFG like a volume knob for "how literally should the model
+  interpret your words."
+
+  The Loop:
+  ---------
+  The U-Net and scheduler repeat this predict-and-subtract cycle for
+  every scheduled timestep. In the visualization, you'll see the latent
+  preview gradually transform from static noise into a recognizable
+  image. The progress bar shows how far along the process is, and the
+  equations below it update in real time to show what's happening
+  mathematically at each step.
+
+  Watch for the moment when the noise starts resolving into a shape — you
+  can usually make out the image surprisingly early in the process, even
+  though many steps remain.
+
+
+STAGE 6: CLEAN LATENT
+---------------------
+When the denoising loop finishes, you're left with a clean latent — a
+small, compressed representation of the final image. At this point, the
+image is essentially "done," but it's still in the model's internal
+format (a 64 × 64 × 4 tensor), not in a format you can look at.
+
+
+STAGE 7: VAE DECODER
+---------------------
+The VAE (Variational Autoencoder) Decoder takes the compact latent and
+expands it back into a full-resolution image. It's like decompressing a
+zip file: the latent is the compressed version, and the VAE inflates it
+to 512 × 512 × 3 (height × width × color channels).
+
+This step involves a 48× expansion in data size. The VAE was trained
+alongside the diffusion model to compress and decompress images with
+minimal loss.
+
+In the visualization, you'll see a diagram showing the latent on the
+left, the decoder in the middle, and the pixel-space image on the right,
+with the compression ratio labeled.
+
+
+STAGE 8: OUTPUT IMAGE
+---------------------
+The final result — a brand-new image that didn't exist until the model
+created it, guided only by the words you typed.
+
+In the visualization, the output panel shows the generated pixel art
+along with a summary of all the settings that were used: which prompt,
+which scheduler, how many steps, and what CFG scale.
+
+
+THE CONTROLS
+------------
+At the top of the visualization, you have several controls:
+
+  ▶ Run Inference   — Runs the full pipeline automatically. Data flows
+                      through each stage with animation.
+
+  ⏭ Step            — Advances one stage at a time, so you can examine
+                      each stage individually.
+
+  ⏸ Pause           — Freezes the animation wherever it is.
+
+  ↺ Reset           — Returns everything to the starting state.
+
+  Scheduler         — Dropdown to choose which scheduler the U-Net uses.
+                      Try switching between them to see how step count
+                      changes.
+
+  Speed             — Controls how fast the animation runs.
+
+  Guidance          — The CFG scale slider. Try cranking it up to 20 or
+                      down to 1 to see how it affects the output.
+
+Below the pipeline, you can click one of three prompts to switch what the
+model will generate. Each prompt produces a different pixel art image.
+
+
+THE U-NET ARCHITECTURE DIAGRAM
+-------------------------------
+Below the pipeline, there's a simplified diagram of the U-Net. It shows:
+
+  • Three Conv↓ blocks on the left (the encoder / downsampling path)
+  • A Mid Attn block at the bottom (the bottleneck with self-attention)
+  • Three Conv↑ blocks on the right (the decoder / upsampling path)
+  • Dashed purple lines = skip connections
+  • "cross-attention" = where the text embeddings are injected
+  • "timestep embedding" = where the current noise level is injected
+
+This U-shaped design is why it's called a U-Net. The skip connections
+are its superpower: they let fine details survive the compression in the
+encoder and get restored in the decoder.
+
+
+WHAT TO TRY
+-----------
+Here are some things to experiment with while using the visualization:
+
+  1. Run the full pipeline and watch the latent preview during denoising.
+     Notice how the image emerges from noise gradually.
+
+  2. Switch schedulers and re-run. Compare DDPM (50 steps) with DPM++ 2M
+     (15 steps). Can you see a quality difference? The bar chart shows
+     you the step counts side by side.
+
+  3. Slide the CFG guidance all the way down to 1, then run. The image
+     will be vague and may not match the prompt well. Now try CFG = 15.
+     The image will follow the prompt more aggressively.
+
+  4. Click the different prompt buttons and run again. Notice how the
+     same pipeline produces completely different images depending on the
+     text input.
+
+  5. Use ⏭ Step to advance one stage at a time. At the tokenizer stage,
+     look at how the text is broken into subword pieces. At the CLIP
+     stage, look at the 768-dimensional embedding heatmap.
+
+
+WHY THIS MATTERS
+----------------
+Diffusion models changed the game for AI-generated imagery because they
+produce much higher quality results than earlier approaches (like GANs),
+and they're more stable to train. The same underlying technique — learning
+to reverse a noise process — is now being applied to:
+
+  • Video generation (Sora, Runway)
+  • Audio and music generation
+  • 3D model creation
+  • Drug molecule design
+  • Text generation (diffusion-based language models)
+
+Understanding the inference pipeline gives you a mental model for how all
+of these applications work. The specific details change (different
+encoders, different latent spaces), but the core loop — start with noise,
+denoise step by step with learned predictions — remains the same.
+
+
+GLOSSARY
+--------
+  BPE         Byte-Pair Encoding. A tokenization method that breaks text
+              into subword pieces.
+
+  CFG         Classifier-Free Guidance. A technique that controls how
+              closely the generated image follows the text prompt.
+
+  CLIP        Contrastive Language-Image Pre-training. A model that
+              understands both text and images in the same space.
+
+  Cross-      A mechanism that lets the U-Net "look at" the text
+  Attention   embeddings while processing the image, so the output
+              matches the description.
+
+  Gaussian    A bell-curve distribution used to generate the random
+  Noise       starting noise.
+
+  Latent      A compressed representation of an image. Much smaller
+  Space       than the full pixel image, but contains enough information
+              to reconstruct it.
+
+  Scheduler   The algorithm that decides how to use the U-Net's noise
+              prediction to take a denoising step. Different schedulers
+              offer different speed/quality trade-offs.
+
+  Skip        Shortcuts in the U-Net that pass information from the
+  Connection  encoder directly to the decoder, preserving fine details.
+
+  Token       A subword unit. "background" might become two tokens:
+              "back" + "ground."
+
+  U-Net       The neural network that predicts noise at each step.
+              Named for its U-shaped architecture.
+
+  VAE         Variational Autoencoder. Compresses images into latent
+              space and decompresses them back to pixels.
+
+  Vector /    A list of numbers representing something (a word, an
+  Embedding   image patch, etc.) in a form a neural network can process.

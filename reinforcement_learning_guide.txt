@@ -1,0 +1,247 @@
+REINFORCEMENT LEARNING: GRID WORLD GAME
+A Guided Walkthrough for Viewers
+========================================
+
+WHAT YOU'RE WATCHING
+--------------------
+You're watching a robot (🤖) learn to play a simple game entirely on its own.
+Nobody programmed it with directions. Nobody told it where the goal is or which
+squares are dangerous. It figures everything out through trial and error — the
+same way you might learn to navigate a new city by wandering around, making
+wrong turns, and gradually remembering which routes work best.
+
+This is called "reinforcement learning," and it's one of the core techniques
+behind game-playing AIs like AlphaGo, self-driving car navigation, and even
+how ChatGPT was fine-tuned to give helpful answers.
+
+
+THE GAME WORLD (top left)
+-------------------------
+The grid is the robot's entire world. Here's what each square means:
+
+  • Empty squares    — Safe to walk on, but each step costs a tiny penalty
+                       (-0.1) to encourage the robot not to wander forever.
+
+  • Walls (dark)     — The robot can't walk through these. If it tries, it
+                       bumps into the wall and stays where it is.
+
+  • Fire pits (🔥)   — Bad news. Stepping on one costs -10 points. The robot
+                       needs to learn to avoid these.
+
+  • The goal (⭐)    — This is what the robot is trying to reach. Worth +50
+                       points. When it gets here, you'll see it turn into a
+                       trophy (🏆) and celebrate before starting over.
+
+  • START            — Where the robot begins each attempt (top-left corner).
+
+Think of it like a board game: the robot needs to find a path from START to
+the star, avoiding fire pits and walls, in as few moves as possible.
+
+
+THE ARROWS ON THE BOARD
+-----------------------
+As the robot learns, you'll notice arrows appearing on the grid squares.
+These are the robot's current "best guess" for what to do in each square —
+its strategy, also called its "policy."
+
+  • Each arrow points in the direction the robot currently believes is the
+    best move from that square (up, down, left, or right).
+
+  • Arrow color tells you how confident the robot is:
+
+      Green arrows  — The robot has learned that this move leads toward
+                      something good (high Q-value). The brighter the green,
+                      the more valuable the robot thinks this move is.
+
+      Red/orange arrows — The robot has learned that this move leads toward
+                      something bad, or at least not very good (low or
+                      negative Q-value). These often point toward fire pits
+                      or dead ends.
+
+  • Why do they change? Because the robot is still learning. Every time it
+    takes a step and gets a reward (or punishment), it updates its notebook.
+    If it discovers a better route, the arrow on that square flips to point
+    in the new direction. If a move turns out to be worse than expected, the
+    arrow color might shift from green toward red.
+
+  • Early on, the arrows are scattered and inconsistent — the robot is
+    guessing. As training progresses, the arrows start to "line up" into a
+    clear path from START to the goal, like trail markers in a forest.
+
+  • Squares the robot hasn't visited yet won't have any arrows at all.
+    Arrows only appear once the robot has tried at least one move from that
+    square and has a preference.
+
+  • The arrow on the robot's current square is hidden so it doesn't cover
+    up the robot icon.
+
+Watch for the moment when the arrows all connect into one coherent route —
+that's when the robot has "solved" the game.
+
+
+HOW THE ROBOT LEARNS
+--------------------
+The robot uses a method called "Q-Learning." Here's the big idea in plain
+English:
+
+  1. The robot keeps a mental notebook. For every square it has visited, it
+     writes down how good it thinks each possible move is (go up, down, left,
+     or right). These scores are called "Q-values."
+
+  2. At first, the notebook is blank. The robot has no idea what to do, so it
+     moves randomly — sometimes into walls, sometimes into fire.
+
+  3. After each move, the robot gets feedback:
+       — Stepped on fire?  That's a big negative score. The robot writes:
+         "Note to self: don't go that direction from that square."
+       — Reached the goal? Huge positive score. "Definitely come this way!"
+       — Nothing special?  Small negative. "This wasn't terrible, but I
+         should keep looking for something better."
+
+  4. Over time, the robot updates its notebook based on a simple rule: "The
+     value of being in a square and taking an action depends on the reward I
+     got PLUS how good the next square turned out to be." Good information
+     gradually flows backward from the goal through all the squares, like
+     word-of-mouth directions spreading through a neighborhood.
+
+  5. After enough practice rounds, the notebook becomes an accurate map of
+     the best move from every position. The robot stops fumbling and starts
+     taking the shortest safe path to the goal every time.
+
+
+WHAT TO WATCH FOR — STAGE BY STAGE
+-----------------------------------
+
+EARLY TRAINING (Episodes 1–30)
+  • The robot moves almost entirely at random.
+  • It will stumble into fire pits frequently.
+  • Most episodes end with a bad score (the chart plummets below zero).
+  • The Q-value heatmap (bottom left) is mostly uniform — the robot hasn't
+    learned much yet.
+  • The explore/exploit gauge (top right) shows nearly full "Explore" — the
+    robot is deliberately trying random moves to discover what's out there.
+
+MID TRAINING (Episodes 30–100)
+  • You'll start to see some arrows on the grid pointing in consistent
+    directions, especially near the goal. The robot has figured out the
+    neighborhood around the star.
+  • The reward chart starts to trend upward — the orange moving-average line
+    begins climbing.
+  • The Q-value heatmap starts showing greens near the goal (good squares)
+    and reds near fire pits (bad squares).
+  • The robot still makes mistakes, but less often.
+
+LATE TRAINING (Episodes 100+)
+  • The arrows form a clear path from START to the goal, snaking around
+    walls and avoiding every fire pit.
+  • The reward chart levels off near the top — the robot is scoring close
+    to the maximum possible reward nearly every time.
+  • The explore/exploit gauge has shifted to mostly "Exploit" — the robot
+    trusts its notebook and follows the best known path.
+  • You'll see the robot reach the goal (🏆) regularly.
+  • The Q-value heatmap has bright greens along the optimal route and deep
+    reds near dangerous areas.
+
+
+THE PANELS EXPLAINED
+--------------------
+
+EXPLORE ← → EXPLOIT GAUGE (top right)
+  This shows the balance between exploration and exploitation. Early on, the
+  robot explores — it takes random moves to discover what's out there, even
+  if it means stepping on fire. Over time, it shifts to exploitation — it
+  mostly follows the best path it knows. The number "ε" (epsilon) is the
+  probability that any given move will be random. It starts at 100% and
+  shrinks to 5%.
+
+  Why not go to 0%? Because even a well-trained robot might benefit from
+  occasionally trying something new, just in case there's a better path it
+  never discovered.
+
+EPISODE REWARD CHART (right side)
+  Each "episode" is one full attempt — the robot starts at START and either
+  reaches the goal or runs out of moves. The blue line shows the total score
+  for each episode. The orange dashed line is the average of the last 10
+  episodes, which smooths out the noise and makes the learning trend visible.
+
+  What a healthy learning curve looks like:
+    — Starts very negative (random walking, lots of fire)
+    — Climbs rapidly during mid-training
+    — Levels off near the top (the robot has mastered the game)
+
+Q-VALUE HEATMAP (bottom left)
+  This is a bird's-eye view of the robot's notebook. Each grid cell is
+  divided into four triangles representing the four directions (up, right,
+  down, left). The color tells you how valuable the robot thinks that action
+  is from that cell:
+
+    Green = "This is a great move!"
+    Yellow = "This is okay."
+    Red    = "This leads somewhere bad."
+    Dark   = "I haven't learned anything about this yet."
+
+  Watch how the green gradually spreads backward from the goal as the robot
+  learns. This is called "value propagation" — once the robot knows the goal
+  is great, it figures out that squares near the goal are pretty good too,
+  and squares near those are decent, and so on, all the way back to START.
+
+THE RL LOOP (bottom right)
+  This diagram shows the five-step cycle that repeats on every single move:
+
+    1. STATE    — The robot observes where it is on the grid.
+    2. ACTION   — It picks a direction (randomly during exploration, or the
+                  best known move during exploitation).
+    3. ENVIRONMENT — The game world processes the action and determines where
+                  the robot ends up.
+    4. REWARD   — The world gives the robot a score for that move.
+    5. Q-UPDATE — The robot updates its notebook entry for that state-action
+                  pair using the Bellman equation (a formula that combines
+                  the immediate reward with the estimated future value).
+
+  The yellow highlight cycles through these steps so you can see which phase
+  is currently happening.
+
+TRANSITION INFO BAR (very bottom)
+  This one-line readout shows the raw details of the most recent move:
+    — The state (grid position) the robot was in
+    — Which direction it moved
+    — The reward it received
+    — The old and new Q-values (showing the notebook update)
+    — The current epsilon (exploration rate)
+
+
+THE CONTROLS
+------------
+  ▶ Play     — Run the simulation live so you can watch the robot move.
+  ⏸ Pause    — Freeze the simulation to examine the current state.
+  ↺ Reset    — Wipe the robot's memory and start training from scratch.
+  +10 Episodes — Silently run 10 episodes in the background, then show the
+                results. Handy for jumping from early training into mid
+                training without waiting. Click it a few times to watch the
+                arrows gradually form and the reward chart start climbing.
+  ⚡ Train ×200 — Silently run 200 episodes in the background, then show
+                the results. Great for skipping ahead to see mastery.
+  Speed slider — Controls how fast the simulation runs. Lower = easier to
+                follow each move. Higher = faster training.
+
+
+KEY TAKEAWAYS
+-------------
+1. The robot starts with zero knowledge and learns entirely from experience.
+   No human tells it the rules, the layout, or the strategy.
+
+2. Early exploration is essential. Without trying random moves, the robot
+   would never discover the goal exists.
+
+3. Learning is gradual. Good strategies propagate backward from the goal one
+   step at a time. The squares right next to the goal learn first, then
+   their neighbors, and so on.
+
+4. The exploration-exploitation tradeoff is a central challenge. Too much
+   exploration = wasted time on bad moves. Too little = the robot might miss
+   better paths. The shrinking epsilon balances this automatically.
+
+5. This exact same idea — an agent learning from rewards in an environment —
+   scales up to incredibly complex problems: playing chess, controlling
+   robots, managing power grids, and training language models to be more
+   helpful.
