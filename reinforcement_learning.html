@@ -8,13 +8,13 @@
       font-family: system-ui, -apple-system, sans-serif;
       margin: 0;
       padding: 20px;
-      background: #0f1117;
-      color: #e2e8f0;
+      background: #fafafa;
+      color: #1a202c;
     }
     #viz {
-      background: #1a1d2e;
+      background: white;
       border-radius: 12px;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
       padding: 10px;
       max-width: 1100px;
       margin: 0 auto;
@@ -23,9 +23,9 @@
     @keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
     .glow { filter: drop-shadow(0 0 6px rgba(99,179,237,0.6)); }
     button {
-      background: #2d3748;
-      color: #e2e8f0;
-      border: 1px solid #4a5568;
+      background: #edf2f7;
+      color: #1a202c;
+      border: 1px solid #cbd5e0;
       border-radius: 6px;
       padding: 8px 18px;
       cursor: pointer;
@@ -33,7 +33,7 @@
       font-family: system-ui;
       transition: all 0.15s;
     }
-    button:hover { background: #4a5568; }
+    button:hover { background: #e2e8f0; }
     button.active { background: #3182ce; border-color: #63b3ed; }
     #controls {
       display: flex;
@@ -44,7 +44,7 @@
     }
     #controls label {
       font-size: 12px;
-      color: #a0aec0;
+      color: #4a5568;
     }
     #speed-slider {
       -webkit-appearance: none;
@@ -52,7 +52,7 @@
       width: 110px;
       height: 6px;
       border-radius: 3px;
-      background: #4a5568;
+      background: #cbd5e0;
       outline: none;
     }
     #speed-slider::-webkit-slider-thumb {
@@ -66,8 +66,8 @@
       font-size: 12px;
       padding: 4px 10px;
       border-radius: 4px;
-      background: #2d3748;
-      border: 1px solid #4a5568;
+      background: #edf2f7;
+      border: 1px solid #cbd5e0;
       margin-left: auto;
     }
   </style>
@@ -245,11 +245,11 @@ goalGrad.append("stop").attr("offset","100%").attr("stop-color","#d69e2e");
 // ─── Title ───────────────────────────────────────────────────────────────
 svg.append("text")
   .attr("x", 40).attr("y", 30)
-  .style("font","bold 22px system-ui").style("fill","#e2e8f0")
+  .style("font","bold 22px system-ui").style("fill","#1a202c")
   .text("Reinforcement Learning: Grid World Game");
 svg.append("text")
   .attr("x", 40).attr("y", 52)
-  .style("font","13px system-ui").style("fill","#718096")
+  .style("font","13px system-ui").style("fill","#4a5568")
   .text("Q-Learning agent navigates a grid, avoiding pits and finding the goal");
 
 // ─── Groups ──────────────────────────────────────────────────────────────
@@ -267,16 +267,16 @@ for (let r = 0; r < GRID_ROWS; r++)
     cellData.push({r, c, v: worldTemplate[r][c]});
 
 function cellColor(v) {
-  if (v===1) return '#2d3748'; // wall
-  if (v===2) return '#742a2a'; // pit
+  if (v===1) return '#cbd5e0'; // wall
+  if (v===2) return '#fc8181'; // pit
   if (v===3) return 'url(#goalGrad)'; // goal
-  return '#1e2030';
+  return '#f7fafc';
 }
 
 // Grid label
 gridG.append("text")
   .attr("x",0).attr("y",-10)
-  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .style("font","bold 14px system-ui").style("fill","#2d3748")
   .text("Game World");
 
 // Cells
@@ -286,7 +286,7 @@ gridG.selectAll("rect.cell").data(cellData).join("rect")
   .attr("width",CELL-2).attr("height",CELL-2)
   .attr("rx",4)
   .attr("fill", d=>cellColor(d.v))
-  .attr("stroke","#2d3748").attr("stroke-width",1);
+  .attr("stroke","#cbd5e0").attr("stroke-width",1);
 
 // Cell icons/labels
 gridG.selectAll("text.icon").data(cellData.filter(d=>d.v>1)).join("text")
@@ -300,14 +300,14 @@ gridG.selectAll("text.icon").data(cellData.filter(d=>d.v>1)).join("text")
 gridG.append("text")
   .attr("x", CELL/2).attr("y", CELL/2 + 2)
   .attr("text-anchor","middle").attr("dominant-baseline","middle")
-  .style("font","10px system-ui").style("fill","#63b3ed")
+  .style("font","10px system-ui").style("fill","#3182ce")
   .text("START");
 
 // Legend
 const legendData = [
-  {label:'Empty (-0.1)', color:'#1e2030'},
-  {label:'Wall (blocked)', color:'#2d3748'},
-  {label:'Pit (-10)', color:'#742a2a'},
+  {label:'Empty (-0.1)', color:'#f7fafc'},
+  {label:'Wall (blocked)', color:'#cbd5e0'},
+  {label:'Pit (-10)', color:'#fc8181'},
   {label:'Goal (+50)', color:'#d69e2e'},
 ];
 const legendG = gridG.append("g").attr("transform",`translate(0,${GRID_ROWS*CELL+12})`);
@@ -315,7 +315,7 @@ legendData.forEach((d,i) => {
   const g = legendG.append("g").attr("transform",`translate(${i*120},0)`);
   g.append("rect").attr("width",12).attr("height",12).attr("rx",2).attr("fill",d.color);
   g.append("text").attr("x",16).attr("y",10)
-    .style("font","11px system-ui").style("fill","#a0aec0").text(d.label);
+    .style("font","11px system-ui").style("fill","#4a5568").text(d.label);
 });
 
 // ─── Render Agent ────────────────────────────────────────────────────────
@@ -405,12 +405,12 @@ const qColorScale = d3.scaleSequential(d3.interpolateRdYlGn).domain([-15, 30]);
 
 qHeatG.append("text")
   .attr("x",0).attr("y",-10)
-  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .style("font","bold 14px system-ui").style("fill","#2d3748")
   .text("Q-Values (State-Action Quality)");
 
 qHeatG.append("text")
   .attr("x",0).attr("y",6)
-  .style("font","11px system-ui").style("fill","#718096")
+  .style("font","11px system-ui").style("fill","#4a5568")
   .text("Brightness = learned value for each state-action pair");
 
 function renderQHeatmap() {
@@ -440,7 +440,7 @@ function renderQHeatmap() {
     .merge(cells)
     .attr("x", d => d.c*blockW + offsets[d.a].dx*qCellSize + 2)
     .attr("y", d => d.r*blockH + offsets[d.a].dy*qCellSize + 20)
-    .attr("fill", d => d.wall ? '#2d3748' : qColorScale(d.q))
+    .attr("fill", d => d.wall ? '#cbd5e0' : qColorScale(d.q))
     .attr("stroke", d => {
       // Highlight the cell that was just updated
       if (lastTransition && d.r===lastTransition.fromR && d.c===lastTransition.fromC && d.a===lastTransition.a)
@@ -460,7 +460,7 @@ function renderQHeatmap() {
     .attr("x", d => d*blockW + blockW/2)
     .attr("y", 18)
     .attr("text-anchor","middle")
-    .style("font","9px system-ui").style("fill","#718096")
+    .style("font","9px system-ui").style("fill","#4a5568")
     .text(d => `C${d}`);
 }
 
@@ -469,17 +469,17 @@ const chartW = 380, chartH = 220;
 
 chartG.append("text")
   .attr("x",0).attr("y",-10)
-  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .style("font","bold 14px system-ui").style("fill","#2d3748")
   .text("Episode Reward Over Time");
 
 chartG.append("text")
   .attr("x",0).attr("y",6)
-  .style("font","11px system-ui").style("fill","#718096")
+  .style("font","11px system-ui").style("fill","#4a5568")
   .text("Total reward per episode — should trend upward");
 
 chartG.append("rect")
   .attr("y",14).attr("width",chartW).attr("height",chartH)
-  .attr("rx",6).attr("fill","#141622").attr("stroke","#2d3748");
+  .attr("rx",6).attr("fill","#f7fafc").attr("stroke","#cbd5e0");
 
 const chartInner = chartG.append("g").attr("transform","translate(40,24)");
 const innerW = chartW - 60, innerH = chartH - 30;
@@ -496,9 +496,9 @@ const avgPathG = chartInner.append("path")
 // Chart legend
 const cLeg = chartG.append("g").attr("transform",`translate(50,${chartH + 22})`);
 cLeg.append("line").attr("x1",0).attr("y1",0).attr("x2",16).attr("y2",0).attr("stroke","#63b3ed").attr("stroke-width",2);
-cLeg.append("text").attr("x",20).attr("y",4).style("font","11px system-ui").style("fill","#a0aec0").text("Per episode");
+cLeg.append("text").attr("x",20).attr("y",4).style("font","11px system-ui").style("fill","#2d3748").text("Per episode");
 cLeg.append("line").attr("x1",110).attr("y1",0).attr("x2",126).attr("y2",0).attr("stroke","#f6ad55").attr("stroke-width",2).attr("stroke-dasharray","4,3");
-cLeg.append("text").attr("x",130).attr("y",4).style("font","11px system-ui").style("fill","#a0aec0").text("Moving avg (10)");
+cLeg.append("text").attr("x",130).attr("y",4).style("font","11px system-ui").style("fill","#2d3748").text("Moving avg (10)");
 
 function renderChart() {
   if (rewardHistory.length < 2) return;
@@ -507,9 +507,9 @@ function renderChart() {
   const y = d3.scaleLinear().domain(d3.extent(rewardHistory)).nice().range([innerH, 0]);
 
   xAxisG.call(d3.axisBottom(x).ticks(6).tickFormat(d3.format("d")))
-    .selectAll("text,line,path").style("stroke","#4a5568").style("fill","#718096").style("font-size","10px");
+    .selectAll("text,line,path").style("stroke","#cbd5e0").style("fill","#4a5568").style("font-size","10px");
   yAxisG.call(d3.axisLeft(y).ticks(5))
-    .selectAll("text,line,path").style("stroke","#4a5568").style("fill","#718096").style("font-size","10px");
+    .selectAll("text,line,path").style("stroke","#cbd5e0").style("fill","#4a5568").style("font-size","10px");
 
   const line = d3.line().x((_,i)=>x(i)).y(d=>y(d)).curve(d3.curveMonotoneX);
   linePathG.datum(rewardHistory).attr("d", line);
@@ -532,7 +532,7 @@ const loopW = 380, loopH = 260;
 
 loopG.append("text")
   .attr("x",0).attr("y",-10)
-  .style("font","bold 14px system-ui").style("fill","#a0aec0")
+  .style("font","bold 14px system-ui").style("fill","#2d3748")
   .text("The RL Loop");
 
 // Circular flow of RL
@@ -559,7 +559,7 @@ loopEdges.forEach(e => {
   loopG.append("line")
     .attr("x1",from.x).attr("y1",from.y+14)
     .attr("x2",to.x).attr("y2",to.y-8)
-    .attr("stroke","#4a5568").attr("stroke-width",2)
+    .attr("stroke","#cbd5e0").attr("stroke-width",2)
     .attr("marker-end","url(#arrowRL)");
 });
 
@@ -582,7 +582,7 @@ nodeG.append("text")
 
 nodeG.append("text")
   .attr("text-anchor","middle").attr("y",22)
-  .style("font","10px system-ui").style("fill","#718096")
+  .style("font","10px system-ui").style("fill","#4a5568")
   .text(d=>d.desc);
 
 // Highlight currently active loop node
@@ -606,11 +606,11 @@ const infoG = svg.append("g").attr("transform",`translate(${rlLoopOrigin.x},${rl
 
 infoG.append("rect")
   .attr("width",380).attr("height",30).attr("rx",6)
-  .attr("fill","#1e2030").attr("stroke","#4a5568");
+  .attr("fill","#f7fafc").attr("stroke","#cbd5e0");
 
 const infoText = infoG.append("text")
   .attr("x",10).attr("y",19)
-  .style("font","12px monospace").style("fill","#a0aec0");
+  .style("font","12px monospace").style("fill","#2d3748");
 
 function updateInfo() {
   if (!lastTransition) {
@@ -628,16 +628,16 @@ function updateInfo() {
 const gaugeG = svg.append("g").attr("transform",`translate(${gridOrigin.x + GRID_COLS*CELL + 130}, 68)`);
 
 gaugeG.append("text").attr("y",-6)
-  .style("font","bold 11px system-ui").style("fill","#a0aec0")
+  .style("font","bold 11px system-ui").style("fill","#2d3748")
   .text("Explore ← → Exploit");
 
 const gaugeW = 150, gaugeH = 10;
 gaugeG.append("rect").attr("width",gaugeW).attr("height",gaugeH).attr("rx",5)
-  .attr("fill","#2d3748");
+  .attr("fill","#edf2f7");
 
 const gaugeFill = gaugeG.append("rect").attr("height",gaugeH).attr("rx",5);
 const gaugeLabel = gaugeG.append("text").attr("y",gaugeH+14)
-  .style("font","11px monospace").style("fill","#718096");
+  .style("font","11px monospace").style("fill","#4a5568");
 
 function updateGauge() {
   const exploitFrac = 1 - epsilon;
