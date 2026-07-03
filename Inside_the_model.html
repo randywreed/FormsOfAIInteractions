@@ -7,7 +7,7 @@
         body {
             margin: 0;
             overflow: hidden;
-            background: #fafafa;
+            background: #000;
             font-family: 'Courier New', monospace;
         }
         #container {
@@ -15,7 +15,6 @@
             height: 100vh;
         }
         .number {
-            fill: #3182ce;
             font-size: 14px;
             text-anchor: middle;
             pointer-events: none;
@@ -24,7 +23,7 @@
             position: absolute;
             top: 20px;
             left: 20px;
-            color: #2d3748;
+            color: #00ff41;
             font-size: 16px;
         }
     </style>
@@ -65,6 +64,13 @@
         let cameraZ = -500;
         let rotationX = 0, rotationY = 0;
         
+        // Interpolate green brightness: t=0 is farthest (dark green), t=1 is nearest (bright green)
+        function greenColor(t) {
+            const green = Math.round(40 + t * 215);  // 40 (dark) to 255 (bright)
+            const blue  = Math.round(t * 65);         // 0 to 65 (slight blue tint at bright end)
+            return `rgb(0,${green},${blue})`;
+        }
+        
         // Project 3D to 2D
         function project(point, zoomLevel, rotation) {
             const perspective = 1000;
@@ -99,14 +105,15 @@
             };
         }
         
-        function render() {
-            const zoomLevel = isZoomedIn ? 60 : 5;
+        // animate=true uses a short transition (zoom toggle); animate=false updates immediately
+        function render(animate) {
+            const zoomLevel = isZoomedIn ? 60 : 50;
             const rotation = isZoomedIn ? { x: rotationX, y: rotationY } : { x: 0, y: 0 };
             
             const texts = g.selectAll(".number")
                 .data(numbers, (d, i) => i);
             
-            texts.enter()
+            let selection = texts.enter()
                 .append("text")
                 .attr("class", "number")
                 .merge(texts)
@@ -114,31 +121,45 @@
                     const pos = project(d, zoomLevel, rotation);
                     d.projected = pos;
                 })
-                .sort((a, b) => a.projected.z - b.projected.z)
-                .transition()
-                .duration(1500)
+                .sort((a, b) => a.projected.z - b.projected.z);
+            
+            if (animate) {
+                selection = selection.transition().duration(500);
+            }
+            
+            selection
                 .attr("x", d => d.projected.x)
                 .attr("y", d => d.projected.y)
-                .attr("opacity", d => isZoomedIn ? Math.max(0.2, d.projected.scale) : 1)
-                .attr("font-size", d => isZoomedIn ? 14 * d.projected.scale : 14)
+                .attr("opacity", d => {
+                    if (!isZoomedIn) return 1;
+                    // Numbers farther from camera fade out; closer ones are fully opaque
+                    return Math.max(0.15, Math.min(1, (d.projected.scale - 0.6) / 0.6));
+                })
+                .attr("font-size", d => isZoomedIn ? Math.max(8, 14 * d.projected.scale) : 14)
+                .attr("fill", d => {
+                    if (!isZoomedIn) return "#00ff41";
+                    // Brighter green for numbers closer to camera (higher screenScale)
+                    const t = Math.max(0, Math.min(1, (d.projected.scale - 0.7) / 0.8));
+                    return greenColor(t);
+                })
                 .text(d => d.value);
         }
         
-        // Update numbers continuously
+        // Update numbers continuously — about 10% change every 200ms
         setInterval(() => {
             numbers.forEach(n => {
                 if (Math.random() < 0.1) {
                     n.value = Math.floor(Math.random() * 10);
                 }
             });
-            render();
+            render(false);
         }, 200);
         
         // Handle zoom toggle
         svg.on("click", () => {
             isZoomedIn = !isZoomedIn;
             cameraZ = isZoomedIn ? 0 : -500;
-            render();
+            render(true);
         });
         
         // Mouse movement for rotation when zoomed in
@@ -146,12 +167,12 @@
             if (isZoomedIn) {
                 rotationY = (event.clientX / width - 0.5) * Math.PI;
                 rotationX = (event.clientY / height - 0.5) * Math.PI * 0.5;
-                render();
+                render(false);
             }
         });
         
         // Initial render
-        render();
+        render(false);
     </script>
 </body>
 </html>
