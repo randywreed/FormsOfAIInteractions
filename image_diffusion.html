@@ -377,7 +377,7 @@ function updateMainImage(t) {
 // ─── Draw: Filmstrip (timeline of snapshots) ─────────────────────────────
 const thumbSize = 48;
 const thumbGap = 8;
-const thumbCount = 9;
+const thumbCount = 6;
 const thumbSteps = Array.from({length: thumbCount}, (_, i) =>
   Math.round(i * TOTAL_STEPS / (thumbCount - 1))
 );
@@ -402,8 +402,8 @@ gFilmstrip.append("line")
 gFilmstrip.append("text")
   .attr("x", filmW / 2).attr("y", -10)
   .attr("text-anchor", "middle")
-  .style("font","10px system-ui").style("fill","#f6ad55")
-  .text("Forward Process: q(xₜ | xₜ₋₁) — Add Noise");
+  .style("font","9px system-ui").style("fill","#f6ad55")
+  .text("Forward process — add noise");
 
 // Reverse arrow
 gFilmstrip.append("line")
@@ -412,10 +412,10 @@ gFilmstrip.append("line")
   .attr("stroke", "#68d391").attr("stroke-width", 2)
   .attr("marker-end", "url(#arrowGreen)");
 gFilmstrip.append("text")
-  .attr("x", filmW / 2).attr("y", thumbSize + 34)
+  .attr("x", filmW / 2).attr("y", thumbSize + 32)
   .attr("text-anchor", "middle")
-  .style("font","10px system-ui").style("fill","#68d391")
-  .text("Reverse Process: pθ(xₜ₋₁ | xₜ) — Learned Denoising");
+  .style("font","9px system-ui").style("fill","#68d391")
+  .text("Reverse process — denoise");
 
 // Thumbnails
 const thumbGroups = gFilmstrip.selectAll("g.thumb")
